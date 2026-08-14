@@ -11,8 +11,11 @@ import json
 import os
 import sys
 
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEACHERFLOW_PATH = os.environ.get(
-    "TEACHERFLOW_PATH", os.path.join(os.path.expanduser("~"), "teacherflow"))
+    "TEACHERFLOW_PATH",
+    _REPO if os.path.isdir(os.path.join(_REPO, "teacherflow")) else
+    os.path.join(os.path.expanduser("~"), "teacherflow"))
 MODEL = os.environ.get("MS_TEACHER_MODEL", "gpt-5.5")
 MAX_BUCKET_OPS, MAX_QID_OPS = 4, 16
 
