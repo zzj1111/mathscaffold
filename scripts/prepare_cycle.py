@@ -16,7 +16,7 @@ ap.add_argument("--jsonl", default=os.environ.get("MS_DATA",
                 "/mnt/data1/zha00175/math_prep/questa_12k/OpenR1-25-0-4.jsonl"))
 ap.add_argument("--state", default="ratio_state.json")
 ap.add_argument("--rollout-log", default=None)
-ap.add_argument("--arm", choices=["adaptive", "static"], required=True)
+ap.add_argument("--arm", choices=["adaptive", "static", "teacher"], required=True)
 ap.add_argument("--cycle", type=int, required=True)
 ap.add_argument("--switch-cycle", type=int, default=10)
 ap.add_argument("--served", type=int, default=2048)
@@ -40,6 +40,24 @@ if a.rollout_log and os.path.exists(a.rollout_log):
 
 if a.arm == "adaptive":
     state, notes = C.adaptive_update(state, outcomes, a.cycle)
+elif a.arm == "teacher":
+    # mechanical bookkeeping first (graduation / relapse / bare-probe outcomes are
+    # not the Teacher's to decide), then the investigative Teacher steers ratios;
+    # unreachable/malformed degrades to the adaptive rule for this cycle.
+    from mathscaffold import teacher as T
+    book = {q: (s_, n_) for q, (s_, n_) in outcomes.items()
+            if state.get(q, {}).get("r", 1) <= 0 or state.get(q, {}).get("state") == "graduated"}
+    state, notes = C.adaptive_update(state, book, a.cycle)
+    sets, note, _ = T.decide(a.rollout_log or "", state, outcomes, a.cycle,
+                             transcript_dir=os.path.join(os.path.dirname(a.state) or ".",
+                                                         "teacher_transcripts"))
+    if sets is None:
+        state, notes2 = C.adaptive_update(state, outcomes, a.cycle)
+        notes += [note] + notes2
+    else:
+        for qid, new_r in sets:
+            state[qid]["r"] = new_r
+        notes += [note, f"teacher set {len(sets)} ratios"]
 else:
     state, notes = C.static_update(state, outcomes, a.cycle, a.switch_cycle)
 for n in notes[:20]:
