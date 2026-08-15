@@ -11,8 +11,12 @@ import json
 
 
 def load_problems(jsonl_path):
-    """-> list of {qid, problem, answer, solution}; qid is the stable line index."""
+    """-> list of {qid, problem, answer, solution}; qid is the stable line index of
+    the FIRST occurrence. QuestA's files repeat problems with different reference
+    generations — dedupe by problem text, else per-problem ratio state splits
+    across duplicates and the same problem can be served twice in one cycle."""
     out = []
+    seen = set()
     with open(jsonl_path) as f:
         for i, line in enumerate(f):
             try:
@@ -26,6 +30,10 @@ def load_problems(jsonl_path):
             answer = str(d.get("answer") or "")
             if not answer or answer not in solution:
                 continue
+            key = " ".join(str(d["problem"]).split())
+            if key in seen:
+                continue
+            seen.add(key)
             out.append({"qid": f"q{i}", "problem": d["problem"],
                         "answer": answer, "solution": solution})
     return out
