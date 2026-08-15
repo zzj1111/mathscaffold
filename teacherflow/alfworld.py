@@ -163,12 +163,7 @@ Return, as your FINAL message (no tool call), ONLY this JSON:
  "item_ops": [{"op": "add", "scope": "<general|pick_and_place|pick_two_obj_and_place|look_at_obj_in_light|pick_heat_then_place_in_recep|pick_cool_then_place_in_recep|pick_clean_then_place_in_recep>",
                "kind": "skill", "text": "..."} |
               {"op": "update", "id": "...", "text": "..."} | {"op": "delete", "id": "..."}],
- "p_ops": [{"task": "<category>", "p": <0..0.5>}],
- "requeue_ops": ["<trial dir name, as shown in a trace's `game` field>", ...]}
-requeue_ops is your ONLY data-side lever and it is optional: each named game is
-guaranteed one appearance in the NEXT training window (hard cap 4 per cycle; extras
-are voided; unknown names are skipped). It has effect only in runs where explicit
-game serving is enabled — otherwise it is recorded but inert.
+ "p_ops": [{"task": "<category>", "p": <0..0.5>}]}
 Empty item_ops and p_ops means no intervention this cycle. Keep any text you write
 concise and concrete; it is spliced into training prompts and costs context there.
 

@@ -37,9 +37,6 @@ def _validate(decision):
                                 else {"p": clamped})
         except (KeyError, TypeError, ValueError):
             continue
-    # pass through untouched: the arm-side normalize() owns cleaning and the cap
-    if decision.get("requeue_ops"):
-        out["requeue_ops"] = list(decision["requeue_ops"])
     if decision.get("ratio_ops"):
         out["ratio_ops"] = list(decision["ratio_ops"])   # math domain; arm-side clamps
     return out
