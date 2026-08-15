@@ -81,8 +81,12 @@ def normalize(decision, state):
             f"{len(decision.get('item_ops') or [])} item, {len(decision.get('p_ops') or [])} p)")
 
 
-def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=None):
-    """One Teacher decision. Mutates nothing; returns (sets, note, transcript)."""
+def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=None,
+           problems=None):
+    """One Teacher decision. Mutates nothing; returns (sets, note, transcript).
+    problems: list from data.load_problems — statements/reference solutions become
+    visible in get_traces. Cross-cycle memory: a rolling history.json beside the
+    transcripts is surfaced as recent_decisions and appended to on every decision."""
     if TEACHERFLOW_PATH not in sys.path:
         sys.path.insert(0, TEACHERFLOW_PATH)
     from teacherflow import mathdomain as MD
@@ -96,7 +100,15 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
                                       ("all_pass" if succ == n else "mixed"))
     data = RunData(rollout_log, scaffold_path=None, state_path=None)
     data.scaffold = state
-    data.state = {}
+    data.problems = {p["qid"]: p for p in (problems or [])}
+    hist_path = os.path.join(transcript_dir, "history.json") if transcript_dir else None
+    recent = []
+    if hist_path and os.path.exists(hist_path):
+        try:
+            recent = json.load(open(hist_path))[-6:]
+        except (OSError, ValueError):
+            recent = []
+    data.state = {"recent": recent}
     preamble = (f"Cycle {cycle} just finished training. {probe_line}"
                 "Investigate as you see fit, then decide.")
     try:
@@ -116,4 +128,15 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
             pass
     if decision is None:
         return None, "malformed final output -> mechanical fallback", transcript
-    return normalize(decision, state), "decided", transcript
+    result = normalize(decision, state)
+    if hist_path:
+        try:
+            sets, item_ops, p_ops, note = result
+            recent.append({"cycle": cycle, "probe": probe_line.strip() or None,
+                           "ratio_sets": len(sets), "item_ops": len(item_ops),
+                           "p_ops": len(p_ops),
+                           "diagnosis": (decision.get("diagnosis") or "")[:240]})
+            json.dump(recent[-12:], open(hist_path, "w"), ensure_ascii=False)
+        except OSError:
+            pass
+    return result, "decided", transcript

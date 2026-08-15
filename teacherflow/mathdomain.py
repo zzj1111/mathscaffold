@@ -49,8 +49,8 @@ TOOL_SPECS = [
             "required": ["outcome"]}}},
     {"type": "function", "function": {
         "name": "get_traces",
-        "description": "Rollout excerpts (model output head, with score) for ONE "
-                       f"problem; at most {MAX_TRACES_PER_CALL} per call.",
+        "description": "ONE problem in full: statement, reference solution, and up to "
+                       f"{MAX_TRACES_PER_CALL} rollout excerpts (head+tail) with scores.",
         "parameters": {"type": "object", "properties": {
             "qid": {"type": "string"},
             "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL}},
@@ -111,13 +111,17 @@ def dispatch(data, name, args):
         n = min(int(args.get("n") or 20), 40)
         return {"total_matching": len(out), "problems": out[off:off + n]}
     if name == "get_traces":
-        g = groups.get(str(args.get("qid"))) or []
+        qid = str(args.get("qid"))
+        g = groups.get(qid) or []
         n = min(int(args.get("n") or 3), MAX_TRACES_PER_CALL)
-        return {"attempts": [{"score": x.get("score"),
+        meta = (getattr(data, "problems", None) or {}).get(qid) or {}
+        return {"problem": str(meta.get("problem") or "")[:900],
+                "reference_solution": str(meta.get("solution") or "")[:1100],
+                "attempts": [{"score": x.get("score"),
                               "ratio": x.get("ratio"),
-                              "text_head": str(x.get("text") or "")[:TEXT_HEAD]}
+                              "text": str(x.get("text") or "")[:TEXT_HEAD + 500]}
                              for x in g[:n]],
-                "note": "text is the model output head; absent if text logging is off"}
+                "note": "attempt text is head+tail of the model output"}
     return {"error": f"unknown tool {name}"}
 
 

@@ -28,12 +28,14 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, **kw
         try:
             with open(log, "a") as f:
                 e = extra_info or {}
-                cap = int(os.environ.get("MS_LOG_TEXT_CHARS", "1200"))
+                head = int(os.environ.get("MS_LOG_HEAD_CHARS", "800"))
+                tail = int(os.environ.get("MS_LOG_TAIL_CHARS", "400"))
+                t = str(solution_str or "")
+                excerpt = t if len(t) <= head + tail else (
+                    t[:head] + "\n...[middle truncated]...\n" + t[-tail:])
                 f.write(json.dumps({"qid": e.get("qid"), "ratio": e.get("ratio"),
-                                    "topic": e.get("topic"),
                                     "text_inj": bool(e.get("text_inj")),
-                                    "score": score,
-                                    "text": str(solution_str or "")[:cap]},
+                                    "score": score, "text": excerpt},
                                    ensure_ascii=False) + "\n")
         except OSError:
             pass

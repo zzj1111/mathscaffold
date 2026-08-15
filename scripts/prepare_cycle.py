@@ -55,7 +55,19 @@ elif a.arm == "teacher":
     book = {q: (s_, n_) for q, (s_, n_) in outcomes.items()
             if probs.get(q, {}).get("r", 1) <= 0 or probs.get(q, {}).get("state") == "graduated"}
     state, notes = C.adaptive_update(state, book, a.cycle)
+    probe_line = ""
+    pf = os.path.join(os.path.dirname(a.state) or ".", "probe.json")
+    if os.path.exists(pf):
+        try:
+            pr = json.load(open(pf))
+            probe_line = ("Latest hint-free probes: "
+                          + ", ".join(f"{k} pass@1 {v}" for k, v in pr.items()
+                                      if k != "cycle")
+                          + f" (measured at cycle {pr.get('cycle', '?')}). ")
+        except (OSError, ValueError):
+            pass
     result, note, _ = T.decide(a.rollout_log or "", state, outcomes, a.cycle,
+                               probe_line=probe_line, problems=problems,
                                transcript_dir=os.path.join(os.path.dirname(a.state) or ".",
                                                            "teacher_transcripts"))
     if result is None:
