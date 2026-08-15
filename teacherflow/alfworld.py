@@ -96,7 +96,49 @@ def dispatch(data, name, args):
                            "all_succeed": sum(1 for g in complete
                                               if all(float(r.get("success") or 0) > 0 for r in g))}
             out[cat] = d
+        # ALL-FAIL TRACKING: which games are all-fail this window, whether they
+        # were also all-fail last time seen (recurring = RL is stuck on them, no
+        # gradient at all), and whether last window's all-fail games escaped now.
+        def _fail_games(rs):
+            g = {}
+            for r in rs:
+                g.setdefault(r.get("gamefile"), []).append(r)
+            fails, seen = set(), set()
+            for gf, grp in g.items():
+                if len(grp) < 2:
+                    continue
+                seen.add(gf)
+                if all(float(r.get("success") or 0) <= 0 for r in grp):
+                    fails.add(gf)
+            return fails, seen
+        cur_f, cur_seen = _fail_games(rows)
+        prev_f, prev_seen = _fail_games(getattr(data, "prev_rows", []) or [])
+        recurring = sorted(cur_f & prev_f)
+        escaped = sorted(prev_f & (cur_seen - cur_f))
+        still_unseen = len(prev_f - cur_seen)
+        def _cat_of(gf):
+            for c in CATEGORIES:
+                if c in str(gf):
+                    return c
+            return "?"
+        by_cat = {}
+        for gf in cur_f:
+            by_cat.setdefault(_cat_of(gf), {"all_fail_now": 0, "recurring": 0})
+            by_cat[_cat_of(gf)]["all_fail_now"] += 1
+        for gf in recurring:
+            by_cat[_cat_of(gf)]["recurring"] += 1
+        tracking = {
+            "all_fail_now": len(cur_f),
+            "recurring_all_fail": len(recurring),
+            "escaped_since_last_window": len(escaped),
+            "last_window_all_fail_not_reseen": still_unseen,
+            "by_category": by_cat,
+            "recurring_games": [_game({"gamefile": g}) for g in recurring[:12]],
+            "note": "recurring all-fail = zero gradient twice in a row; RL cannot "
+                    "move these on its own. escaped = all-fail last time, at least "
+                    "one success now (whatever changed in between worked)."}
         return {"per_task_type": out,
+                "all_fail_tracking": tracking,
                 "scaffold": {"items": data.scaffold.get("items"),
                              "p_task": data.scaffold.get("p_task")},
                 # held-out measurement of the CURRENT scaffold, injected (raw numbers;
@@ -146,6 +188,19 @@ A group is one game instance's rollouts; if all of them score the same, the grou
 yields no gradient. Injection can only shape behavior where groups still yield
 gradient: in categories where nearly all groups are all-succeed, injected text has
 no signal left to shape and only carries the train/eval distribution-shift cost.
+YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups already carry gradient
+— plain RL learns those by itself, and support there is at best a mild accelerant
+that has repeatedly failed to survive into hint-free evaluation. All-succeed groups
+are already learned. The one place RL cannot move on its own is the ALL-FAIL group:
+zero successes, zero gradient, and it stays that way unless something changes the
+sampling. Judge every intervention by whether it can turn all-fail groups into
+groups with at least one success (that is when gradient appears), and prefer that
+over polishing categories that are already mostly solved. get_stats reports all-fail
+tracking (new vs recurring vs escaped, per category): recurring all-fail games are
+where support is the ONLY lever; escaped ones tell you what unlocked them. Read the
+failed trajectories of all-fail groups (get_traces with success=0, get_group) to find
+the missing piece before writing text — text that names the specific missing step or
+object handling is what can unlock them, generic advice cannot.
 Text changes are gated: an A/B on held-out games must show your candidate beating
 the current scaffold, else it is rejected and any bundled p change dies with it.
 

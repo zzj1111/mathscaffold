@@ -15,8 +15,18 @@ class RunData:
         try:
             with open(rollout_log) as f:
                 lines = f.read().strip().splitlines()
+            prev_lines = []
             if tail_rows:
+                prev_lines = lines[-2 * int(tail_rows):-int(tail_rows)]
                 lines = lines[-int(tail_rows):]
+            # the window BEFORE this one, so tools can tell recurring all-fail
+            # groups (RL cannot escape on its own) from first-time ones
+            self.prev_rows = []
+            for ln in prev_lines:
+                try:
+                    self.prev_rows.append(json.loads(ln))
+                except ValueError:
+                    continue
             for ln in lines:
                 try:
                     rows.append(json.loads(ln))
@@ -24,6 +34,8 @@ class RunData:
                     continue
         except OSError:
             pass
+        if not hasattr(self, "prev_rows"):
+            self.prev_rows = []
         self.rows = rows
         self.groups = collections.OrderedDict()
         for r in rows:

@@ -85,8 +85,20 @@ def dispatch(data, name, args):
         states = {"active": 0, "graduated": 0}
         for h in probs.values():
             states[h.get("state") or "active"] = states.get(h.get("state") or "active", 0) + 1
+        # last window's all-fail problems: fate now (escaped = >=1 success this window)
+        prev = _groups(getattr(data, "prev_rows", []) or [])
+        prev_fail = {q for q, g in prev.items()
+                     if g and all(float(x.get("score") or 0) <= 0 for x in g)}
+        reseen = {q for q in prev_fail if q in groups}
+        escaped = {q for q in reseen
+                   if any(float(x.get("score") or 0) > 0 for x in groups[q])}
+        fate = {"last_window_all_fail": len(prev_fail), "reseen_now": len(reseen),
+                "escaped": len(escaped), "still_all_fail": len(reseen - escaped),
+                "escaped_ratios_now": sorted({float((probs.get(q) or {}).get("r", 0))
+                                              for q in escaped})[:8]}
         return {"window_problems": len(groups),
                 "by_ratio_bucket": by_bucket,
+                "all_fail_fate": fate,
                 "text_vs_bare": by_topic,
                 "text_scaffold": {"items": {sc: [{"id": i["id"], "kind": i["kind"],
                                                   "text": i["text"][:120]}
@@ -140,9 +152,17 @@ You control TWO independent scaffold families:
    belongs to the hint ratio.
 
 A problem's group is its sampled rollouts for one prompt; if all score the same, the
-group yields no gradient. Interventions only matter where groups still yield
-gradient: all-pass at some dose has nothing left to teach there; all-fail means the
-dose is not strong enough (or the problem is beyond any dose).
+group yields no gradient. YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups
+already carry gradient — plain RL learns those by itself. All-pass groups are already
+learned at that dose. The one place RL cannot move on its own is the all-fail group:
+zero successes, zero gradient, and it stays that way unless the dose changes the
+sampling. Judge every intervention by whether it can turn all-fail groups into groups
+with at least one success (that is when gradient appears): raise the hint ratio on
+all-fail problems until they become mixed, then let RL learn them and anneal. Prefer
+that over polishing problems that are already mostly solved. get_stats reports each
+ratio bucket's all-fail/mixed/all-pass split and last window's all-fail problems'
+fate this window (escaped vs still all-fail) — what unlocked escaped ones is your most
+direct evidence of the right dose.
 
 INVESTIGATION: read-only tools over this cycle's rollouts, the ratio state and the
 text scaffold. The user message states your EXACT budgets; every result carries
