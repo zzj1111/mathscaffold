@@ -117,16 +117,17 @@ def dispatch(data, name, args):
             g = {}
             for r in rs:
                 g.setdefault(r.get("gamefile"), []).append(r)
-            fails, seen = set(), set()
+            fails, seen, side = set(), set(), {}
             for gf, grp in g.items():
                 if len(grp) < 2:
                     continue
                 seen.add(gf)
                 if all(float(r.get("success") or 0) <= 0 for r in grp):
                     fails.add(gf)
-            return fails, seen
-        cur_f, cur_seen = _fail_games(rows)
-        prev_f, prev_seen = _fail_games(getattr(data, "prev_rows", []) or [])
+                    side[gf] = bool(grp[0].get("injected"))
+            return fails, seen, side
+        cur_f, cur_seen, cur_side = _fail_games(rows)
+        prev_f, prev_seen, _ = _fail_games(getattr(data, "prev_rows", []) or [])
         recurring = sorted(cur_f & prev_f)
         escaped = sorted(prev_f & (cur_seen - cur_f))
         still_unseen = len(prev_f - cur_seen)
@@ -137,8 +138,10 @@ def dispatch(data, name, args):
             return "?"
         by_cat = {}
         for gf in cur_f:
-            by_cat.setdefault(_cat_of(gf), {"all_fail_now": 0, "recurring": 0})
-            by_cat[_cat_of(gf)]["all_fail_now"] += 1
+            c = by_cat.setdefault(_cat_of(gf), {"all_fail_now": 0, "recurring": 0,
+                                                "all_fail_injected": 0, "all_fail_bare": 0})
+            c["all_fail_now"] += 1
+            c["all_fail_injected" if cur_side.get(gf) else "all_fail_bare"] += 1
         for gf in recurring:
             by_cat[_cat_of(gf)]["recurring"] += 1
         tracking = {
@@ -150,7 +153,10 @@ def dispatch(data, name, args):
             "recurring_games": [_game({"gamefile": g}) for g in recurring[:12]],
             "note": "recurring all-fail = zero gradient twice in a row; RL cannot "
                     "move these on its own. escaped = all-fail last time, at least "
-                    "one success now (whatever changed in between worked)."}
+                    "one success now (whatever changed in between worked). "
+                    "all_fail_bare = text never reached them (a dose question); "
+                    "all_fail_injected = text was there and did not unlock them "
+                    "(a content question)."}
         return {"per_task_type": out,
                 "all_fail_tracking": tracking,
                 "scaffold": {"items": data.scaffold.get("items"),
