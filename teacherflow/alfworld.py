@@ -63,7 +63,9 @@ TOOL_SPECS = [
             "injected": {"type": "boolean"},
             "all_fail_only": {"type": "boolean",
                               "description": "only rollouts from ALL-FAIL groups "
-                                             "(the zero-gradient ones); default false"},
+                                             "(the zero-gradient ones); default false. "
+                                             "Capped at 4 traces per call so you can "
+                                             "cover every category within budget"},
             "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL},
             "offset": {"type": "integer", "minimum": 0}},
             "required": ["task_type"]}}},
@@ -177,6 +179,9 @@ def dispatch(data, name, args):
         if "injected" in args and args["injected"] is not None:
             sub = [r for r in sub if bool(r.get("injected")) == bool(args["injected"])]
         if args.get("all_fail_only"):
+            # all-fail groups are near-identical loops: 4 traces show the pattern; 8
+            # per call spent the whole evidence budget on three categories (live c14/c15)
+            args = {**args, "n": min(int(args.get("n") or 4), 4)}
             byu = {}
             for r in rows:
                 if r.get("task_type") == cat:
