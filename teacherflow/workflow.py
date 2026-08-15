@@ -31,7 +31,8 @@ def _validate(decision):
             out["item_ops"].append(op)
     for op in decision.get("p_ops") or []:
         try:
-            out["p_ops"].append({"task": str(op["task"]),
+            key = "task" if "task" in op else "topic"
+            out["p_ops"].append({key: str(op[key]),
                                  "p": max(0.0, min(0.5, float(op["p"])))})
         except (KeyError, TypeError, ValueError):
             continue

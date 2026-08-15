@@ -25,6 +25,10 @@ a = ap.parse_args()
 
 problems = D.load_problems(a.jsonl)
 state = C.load_state(a.state, problems)
+topics = {}
+tp = os.environ.get("MS_TOPICS", "/mnt/data1/zha00175/math_prep/topics.json")
+if os.path.exists(tp):
+    topics = json.load(open(tp))
 
 outcomes = {}
 if a.rollout_log and os.path.exists(a.rollout_log):
@@ -45,19 +49,24 @@ elif a.arm == "teacher":
     # not the Teacher's to decide), then the investigative Teacher steers ratios;
     # unreachable/malformed degrades to the adaptive rule for this cycle.
     from mathscaffold import teacher as T
+    from mathscaffold import textscaffold as TS
+    probs = state["problems"]
     book = {q: (s_, n_) for q, (s_, n_) in outcomes.items()
-            if state.get(q, {}).get("r", 1) <= 0 or state.get(q, {}).get("state") == "graduated"}
+            if probs.get(q, {}).get("r", 1) <= 0 or probs.get(q, {}).get("state") == "graduated"}
     state, notes = C.adaptive_update(state, book, a.cycle)
-    sets, note, _ = T.decide(a.rollout_log or "", state, outcomes, a.cycle,
-                             transcript_dir=os.path.join(os.path.dirname(a.state) or ".",
-                                                         "teacher_transcripts"))
-    if sets is None:
+    result, note, _ = T.decide(a.rollout_log or "", state, outcomes, a.cycle,
+                               transcript_dir=os.path.join(os.path.dirname(a.state) or ".",
+                                                           "teacher_transcripts"))
+    if result is None:
         state, notes2 = C.adaptive_update(state, outcomes, a.cycle)
         notes += [note] + notes2
     else:
+        sets, item_ops, p_ops, tnote = result
         for qid, new_r in sets:
-            state[qid]["r"] = new_r
-        notes += [note, f"teacher set {len(sets)} ratios"]
+            probs[qid]["r"] = new_r
+        state["text"], n1 = TS.apply_item_ops(state["text"], item_ops)
+        state["text"], n2 = TS.apply_p_ops(state["text"], p_ops)
+        notes += [tnote, f"teacher set {len(sets)} ratios"] + n1 + n2
 else:
     state, notes = C.static_update(state, outcomes, a.cycle, a.switch_cycle)
 for n in notes[:20]:
@@ -68,7 +77,7 @@ qids = [p["qid"] for p in problems]
 random.Random(20260814).shuffle(qids)
 lo = (a.cycle * a.served) % len(qids)
 served = set((qids + qids)[lo:lo + a.served])
-rows = D.build_rows(problems, state, served)
+rows = D.build_rows(problems, state, served, cycle=a.cycle, topics=topics)
 D.write_parquet(rows, a.out)
 C.save_state(state, a.state)
 print(f"[prepare] cycle {a.cycle}: {len(rows)} rows -> {a.out}")

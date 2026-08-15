@@ -25,9 +25,16 @@ RELAPSE_R = float(os.environ.get("MS_RELAPSE_R", "25"))
 def load_state(path, problems):
     try:
         with open(path) as f:
-            return json.load(f)
+            st = json.load(f)
+        if "problems" not in st:           # v1 flat shape -> wrap
+            st = {"problems": st}
     except OSError:
-        return {p["qid"]: {"r": R0, "state": "active", "hist": []} for p in problems}
+        st = {"problems": {p["qid"]: {"r": R0, "state": "active", "hist": []}
+                           for p in problems}}
+    if "text" not in st:
+        from . import textscaffold as TS
+        st["text"] = TS.empty_text()
+    return st
 
 
 def save_state(state, path):
@@ -40,8 +47,9 @@ def save_state(state, path):
 def adaptive_update(state, outcomes, cycle):
     """outcomes: {qid: (succ, n)} from the recorder. Returns (state, notes)."""
     notes = []
+    probs = state.get("problems", state)
     for qid, (succ, n) in outcomes.items():
-        h = state.get(qid)
+        h = probs.get(qid)
         if not h or n == 0:
             continue
         h["hist"] = (h.get("hist") or [])[-11:] + [
@@ -73,6 +81,6 @@ def adaptive_update(state, outcomes, cycle):
 def static_update(state, outcomes, cycle, switch_cycle):
     """QuestA control: global 50 -> 25 at switch_cycle, no per-problem logic."""
     r = R0 if cycle < switch_cycle else 25.0
-    for h in state.values():
+    for h in state.get("problems", state).values():
         h["r"] = r
     return state, [f"static schedule: all r={r}"]

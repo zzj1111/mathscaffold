@@ -27,9 +27,14 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, **kw
     if log:
         try:
             with open(log, "a") as f:
-                f.write(json.dumps({"qid": (extra_info or {}).get("qid"),
-                                    "ratio": (extra_info or {}).get("ratio"),
-                                    "score": score}) + "\n")
+                e = extra_info or {}
+                cap = int(os.environ.get("MS_LOG_TEXT_CHARS", "1200"))
+                f.write(json.dumps({"qid": e.get("qid"), "ratio": e.get("ratio"),
+                                    "topic": e.get("topic"),
+                                    "text_inj": bool(e.get("text_inj")),
+                                    "score": score,
+                                    "text": str(solution_str or "")[:cap]},
+                                   ensure_ascii=False) + "\n")
         except OSError:
             pass
     return score

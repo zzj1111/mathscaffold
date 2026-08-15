@@ -63,22 +63,42 @@ def dispatch(data, name, args):
     state = data.scaffold or {}
     groups = _groups(rows)
     if name == "get_stats":
+        probs = state.get("problems", state) if isinstance(state, dict) else {}
+        text = (state or {}).get("text") or {}
         by_bucket = {}
+        by_topic = {}
         for qid, g in groups.items():
-            r = float((state.get(qid) or {}).get("r", g[0].get("ratio") or 0))
+            r = float((probs.get(qid) or {}).get("r", g[0].get("ratio") or 0))
             b = by_bucket.setdefault(_bucket(r), {"problems": 0, "all_fail": 0,
                                                   "mixed": 0, "all_pass": 0})
             succ = sum(1 for x in g if float(x.get("score") or 0) > 0)
+            kind = "all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")
             b["problems"] += 1
-            b["all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")] += 1
+            b[kind] += 1
+            # per-topic, split by whether the TEXT scaffold was injected (the coin is
+            # per problem-cycle), mirroring the ALFWorld injected/bare composition
+            topic = g[0].get("topic") or "other"
+            side = "text" if g[0].get("text_inj") else "bare"
+            t = by_topic.setdefault(topic, {})
+            tt = t.setdefault(side, {"problems": 0, "all_fail": 0, "mixed": 0,
+                                     "all_pass": 0})
+            tt["problems"] += 1
+            tt[kind] += 1
         states = {"active": 0, "graduated": 0}
-        for h in state.values():
+        for h in probs.values():
             states[h.get("state") or "active"] = states.get(h.get("state") or "active", 0) + 1
         return {"window_problems": len(groups),
                 "by_ratio_bucket": by_bucket,
+                "by_topic_text_split": by_topic,
+                "text_scaffold": {"items": {sc: [{"id": i["id"], "kind": i["kind"],
+                                                  "text": i["text"][:120]}
+                                                 for i in v]
+                                            for sc, v in (text.get("items") or {}).items() if v},
+                                  "p": text.get("p")},
                 "ratio_state": states,
                 "recent_decisions": (getattr(data, "state", None) or {}).get("recent", [])}
     if name == "get_problems":
+        probs = state.get("problems", state) if isinstance(state, dict) else {}
         want = args.get("outcome")
         rmin = float(args.get("r_min") or 0)
         rmax = float(args.get("r_max") or 100)
@@ -86,7 +106,7 @@ def dispatch(data, name, args):
         for qid, g in sorted(groups.items()):
             succ = sum(1 for x in g if float(x.get("score") or 0) > 0)
             kind = "all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")
-            r = float((state.get(qid) or {}).get("r", g[0].get("ratio") or 0))
+            r = float((probs.get(qid) or {}).get("r", g[0].get("ratio") or 0))
             if kind == want and rmin <= r <= rmax:
                 out.append({"qid": qid, "r": r, "succ": succ, "n": len(g)})
         off = int(args.get("offset") or 0)
@@ -104,34 +124,43 @@ def dispatch(data, name, args):
 
 
 MATH_SYSTEM = """You are the Teacher in an automated RL training run. A small policy
-model is trained with GRPO on hard competition math problems. Each training prompt
-may carry a HINT: the first r% (by characters) of the reference solution, spliced in
-as '## Hint.'. r is PER PROBLEM and you control it. The model is always evaluated
-hint-free, so hints are an exploration device: whatever they elicit must survive
-into the weights to count.
+model is trained with GRPO on hard competition math problems; it is ALWAYS evaluated
+hint-free, so anything you inject into training prompts is an exploration device —
+what it elicits must survive into the weights to count.
 
-A problem's group is its sampled rollouts for one prompt; if all of them score the
-same, the group yields no gradient. Hints can only shape behavior where groups still
-yield gradient: an all-pass group at some r has nothing left to teach at that r, and
-an all-fail group at some r means the hint is not strong enough there. r=0 is a bare
-probe: success there means the problem is genuinely learned; a graduated problem
-that later fails bare has relapsed.
+You control TWO independent scaffold families:
+1. HINT PREFIX (per problem): the first r% (by characters) of the reference solution,
+   spliced as '## Hint.'. r=0 is a bare probe; success there means genuinely learned.
+2. TEXT NOTES (per topic): reusable items spliced as '## Notes.' into that topic's
+   prompts under a per-topic probability p. Kinds: "skill" (a strategy/fact),
+   "example" (a short worked example), "plan" (a solution skeleton). General-scope
+   items ride along with every topic's block.
 
-INVESTIGATION: you have read-only tools over this cycle's rollouts plus the ratio
-state. The user message states your EXACT budgets (tool calls / evidence chars);
-every result carries `_budget_calls_remaining`. Investigate as you see fit, then
-commit to ONE final decision.
+A problem's group is its sampled rollouts for one prompt; if all score the same, the
+group yields no gradient. Interventions only matter where groups still yield
+gradient: all-pass at some dose has nothing left to teach there; all-fail means the
+dose is not strong enough (or the problem is beyond any dose).
+
+INVESTIGATION: read-only tools over this cycle's rollouts, the ratio state and the
+text scaffold. The user message states your EXACT budgets; every result carries
+`_budget_calls_remaining`. Investigate, then commit to ONE final decision.
 
 Return, as your FINAL message (no tool call), ONLY this JSON:
 {"diagnosis": "<your reasoning>",
  "ratio_ops": [
    {"scope": "bucket", "outcome": "all_fail"|"all_pass"|"mixed",
     "r_min": <0..90>, "r_max": <0..90>, "delta": <-20..20>} |
-   {"scope": "qid", "qid": "...", "set": <0..90>}]}
-Empty ratio_ops means no intervention this cycle.
+   {"scope": "qid", "qid": "...", "set": <0..90>}],
+ "item_ops": [{"op": "add", "scope": "<general|algebra|geometry|number_theory|combinatorics|other>",
+               "kind": "skill"|"example"|"plan", "text": "..."} |
+              {"op": "update", "id": "...", "kind": "...", "text": "..."} |
+              {"op": "delete", "id": "..."}],
+ "p_ops": [{"topic": "<topic>", "p": <0..0.5>}]}
+Empty ops means no intervention this cycle.
 
-HARD CONSTRAINTS (violations are clamped or dropped, not fatal):
-- at most 4 bucket ops and 16 qid ops per cycle;
-- delta is clamped to +-20; ratios are clamped to [0, 90];
-- graduation bookkeeping is mechanical (bare success graduates a problem; bare
-  failure after graduation relapses it) — you steer r for ACTIVE problems only."""
+HARD CONSTRAINTS (violations are clamped or the op family is voided, never fatal):
+- ratio: at most 4 bucket ops and 16 qid ops; delta clamped to +-20; r in [0, 90];
+- text: at most 3 add/update ops per cycle (deletes free); skill/plan <= 500 chars,
+  example <= 1500; no duplicate text in a scope; p in [0, 0.5];
+- graduation bookkeeping is mechanical (bare success graduates; bare failure after
+  graduation relapses) — you steer doses for ACTIVE problems only."""
