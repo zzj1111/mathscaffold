@@ -12,6 +12,8 @@ export MS_MODEL=$MS_ROOT/models/OpenMath-Nemotron-1.5B
 export MS_CKPTS=/path/to/ckpts            # TODO: 那台机的 ckpt 根
 export MS_DATA="$MS_ROOT/data/questa_12k/OpenR1-25-0-4.jsonl,$MS_ROOT/data/questa_12k/OpenR1-50-0-4.jsonl"
 export OPENAI_API_KEY=...                 # teacher 臂需要
+export MS_WANDB=1 MS_WANDB_ENTITY=mhong-university-of-minnesota MS_WANDB_PROJECT=mathscaffold
+export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT   # 训练器自己的 run 也进同一项目
 ```
 
 ## 1. 冒烟(半小时,验证那台机的 verl 键名)

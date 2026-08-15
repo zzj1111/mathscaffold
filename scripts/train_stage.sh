@@ -40,7 +40,7 @@ $PY -m verl.trainer.main_ppo \
     trainer.val_before_train=False \
     trainer.total_training_steps=$STEP_TARGET \
     trainer.default_local_dir=$CKPTS \
-    trainer.logger='["console","wandb"]' \
+    trainer.logger="${MS_TRAINER_LOGGER:-['console','wandb']}" \
     trainer.project_name=${MS_WANDB_PROJECT:-mathscaffold} \
     trainer.experiment_name=$EXP \
     trainer.resume_mode=auto

@@ -86,6 +86,15 @@ for n in notes[:20]:
     print("[ctrl]", n)
 print(f"[ctrl] {len(notes)} changes; outcomes for {len(outcomes)} problems")
 
+# publish this cycle's controller/teacher state (no-op unless MS_WANDB=1)
+try:
+    from mathscaffold import wb
+    wb.publish(os.path.dirname(a.state) or ".", a.arm, a.cycle, state, outcomes, notes,
+               transcript_path=os.path.join(os.path.dirname(a.state) or ".",
+                                            "teacher_transcripts", f"c{a.cycle}.json"))
+except Exception as _e:
+    print(f"[wandb] skipped: {_e}")
+
 qids = [p["qid"] for p in problems]
 random.Random(20260814).shuffle(qids)
 lo = (a.cycle * a.served) % len(qids)
