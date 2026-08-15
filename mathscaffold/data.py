@@ -46,12 +46,18 @@ def load_problems(jsonl_paths):
     return out
 
 
+BOX_INSTR = "Please reason step by step, and put your final answer within \\boxed{}."
+
+
 def hint_prompt(problem, solution, ratio):
-    """QuestA's splice: first ratio% of solution chars as '## Hint.'; <10 chars = bare."""
+    """QuestA's splice (their Fig. 4): problem, optional '## Hint.' prefix of the
+    solution (first ratio% of characters; <10 chars = bare), then the boxed-answer
+    instruction."""
     prefix = solution[: int(len(solution) * ratio / 100.0)]
-    if len(prefix) < 10:
-        return problem + "\n\n"
-    return problem + "\n\n" + "## Hint." + prefix
+    body = problem + "\n\n"
+    if len(prefix) >= 10:
+        body += "## Hint." + prefix + "\n\n"
+    return body + BOX_INSTR
 
 
 def build_rows(problems, state, served_qids=None, cycle=0):

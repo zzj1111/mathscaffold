@@ -31,8 +31,10 @@ def one(item):
             model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens,
             messages=[{"role": "user", "content": item[qk]}])
         try:
-            ok += 1 if verify(parse("\\boxed{" + str(item[ak]) + "}"),
-                              parse(r.choices[0].message.content or "")) else 0
+            ok += 1 if verify(parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None),
+                              parse((r.choices[0].message.content or "")[-3000:],
+                                    parsing_timeout=None),
+                              timeout_seconds=None) else 0
         except Exception:
             pass
     return ok / a.n

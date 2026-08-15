@@ -14,9 +14,14 @@ import os
 
 
 def _verify(solution_str, ground_truth):
+    """verl's reward manager calls from worker THREADS: math_verify's default
+    signal-based timeouts raise there (found live: uniform zero reward), so run
+    timeout-free and bound the input instead — parse only the answer-bearing tail."""
     try:
         from math_verify import parse, verify
-        return 1.0 if verify(parse(ground_truth), parse(solution_str)) else 0.0
+        gold = parse(str(ground_truth), parsing_timeout=None)
+        pred = parse(str(solution_str)[-3000:], parsing_timeout=None)
+        return 1.0 if verify(gold, pred, timeout_seconds=None) else 0.0
     except Exception:
         return 0.0
 

@@ -1,0 +1,22 @@
+[ctrl] q7762fdd964: all-fail -> r=65.0
+[ctrl] q5bb7f9fa3e: all-fail -> r=65.0
+[ctrl] q13c7feec7c: all-pass -> r=35.0
+[ctrl] qce5ad94287: all-fail -> r=65.0
+[ctrl] q5a79a7fc89: all-fail -> r=65.0
+[ctrl] q037ae5016a: all-fail -> r=65.0
+[ctrl] q65504a1565: all-fail -> r=65.0
+[ctrl] q626fb68f54: all-fail -> r=65.0
+[ctrl] q457aaa5b9a: all-fail -> r=65.0
+[ctrl] q1766f00eb7: all-fail -> r=65.0
+[ctrl] qeb1f705e01: all-fail -> r=65.0
+[ctrl] q3a40e8099e: all-fail -> r=65.0
+[ctrl] q2925fabfc9: all-fail -> r=65.0
+[ctrl] q80f65ef86b: all-fail -> r=65.0
+[ctrl] q3855f782e0: all-fail -> r=65.0
+[ctrl] q6d7e0f1edb: all-fail -> r=65.0
+[ctrl] qf9f54d1767: all-fail -> r=65.0
+[ctrl] q23d1da73d8: all-fail -> r=65.0
+[ctrl] q629165737d: all-fail -> r=65.0
+[ctrl] q66f351c9aa: all-fail -> r=65.0
+[ctrl] 28 changes; outcomes for 64 problems
+[prepare] cycle 1: 64 rows -> /home/zha00175/mathscaffold/runs/smoke_local3/train_c1.parquet
