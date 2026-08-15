@@ -33,14 +33,14 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, **kw
         try:
             with open(log, "a") as f:
                 e = extra_info or {}
-                head = int(os.environ.get("MS_LOG_HEAD_CHARS", "800"))
-                tail = int(os.environ.get("MS_LOG_TAIL_CHARS", "400"))
-                t = str(solution_str or "")
-                excerpt = t if len(t) <= head + tail else (
-                    t[:head] + "\n...[middle truncated]...\n" + t[-tail:])
+                # full text on disk (excerpting is the tool's job — get_traces
+                # windows into it with head/tail/offset); a generous cap guards
+                # against pathological runaways only
+                cap = int(os.environ.get("MS_LOG_TEXT_CAP", "60000"))
                 f.write(json.dumps({"qid": e.get("qid"), "ratio": e.get("ratio"),
                                     "text_inj": bool(e.get("text_inj")),
-                                    "score": score, "text": excerpt},
+                                    "score": score,
+                                    "text": str(solution_str or "")[:cap]},
                                    ensure_ascii=False) + "\n")
         except OSError:
             pass

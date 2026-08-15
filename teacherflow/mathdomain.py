@@ -7,7 +7,9 @@ Recorder rows: {qid, ratio, score, text?}. data.scaffold is the ratio state
 from __future__ import annotations
 
 MAX_TRACES_PER_CALL = 6
-TEXT_HEAD = 1000
+TEXT_HEAD = 1500
+TEXT_TAIL = 800
+WINDOW = 2500
 
 BUCKETS = ((0.0, 0.0), (0.0, 25.0), (25.0, 50.0), (50.0, 90.0))
 
@@ -54,11 +56,18 @@ TOOL_SPECS = [
                        "given; or, with all_fail_batch=true and no qid, a compact sweep "
                        "of up to 4 ALL-FAIL problems (statement + 1 failed excerpt each) "
                        "— the fast way to look for the missing piece across the "
-                       "zero-gradient set.",
+                       "zero-gradient set. Excerpts default to head+tail of each output; "
+                       "pass char_offset to read a window from the MIDDLE of the outputs "
+                       "(e.g. where the derivation goes wrong) — each attempt reports "
+                       "its total length so you know where to look.",
         "parameters": {"type": "object", "properties": {
             "qid": {"type": "string"},
             "all_fail_batch": {"type": "boolean"},
-            "offset": {"type": "integer", "minimum": 0},
+            "offset": {"type": "integer", "minimum": 0,
+                       "description": "for all_fail_batch: page through problems"},
+            "char_offset": {"type": "integer", "minimum": 0,
+                            "description": "for qid mode: start of a "
+                                           f"{WINDOW}-char window into each output"},
             "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL}}}}},
 ]
 
@@ -151,20 +160,28 @@ def dispatch(data, name, args):
                         "text_inj": bool(g[0].get("text_inj")),
                         "problem": str(m.get("problem") or "")[:500],
                         "reference_tail": str(m.get("solution") or "")[-400:],
-                        "one_failed_excerpt": str(g[0].get("text") or "")[-500:]})
+                        "one_failed_excerpt": str(g[0].get("text") or "")[-TEXT_TAIL:]})
         return {"total_all_fail": len(af), "offset": off, "problems": out}
     if name == "get_traces":
         qid = str(args.get("qid"))
         g = groups.get(qid) or []
         n = min(int(args.get("n") or 3), MAX_TRACES_PER_CALL)
         meta = (getattr(data, "problems", None) or {}).get(qid) or {}
+        co = args.get("char_offset")
+        def _excerpt(t):
+            t = str(t or "")
+            if co is not None:
+                o = max(0, min(int(co), max(0, len(t) - 1)))
+                return {"len": len(t), "window_start": o, "text": t[o:o + WINDOW]}
+            if len(t) <= TEXT_HEAD + TEXT_TAIL:
+                return {"len": len(t), "text": t}
+            return {"len": len(t), "head": t[:TEXT_HEAD], "tail": t[-TEXT_TAIL:],
+                    "note": f"middle {len(t) - TEXT_HEAD - TEXT_TAIL} chars omitted; "
+                            f"use char_offset to read it"}
         return {"problem": str(meta.get("problem") or "")[:900],
                 "reference_solution": str(meta.get("solution") or "")[:1100],
-                "attempts": [{"score": x.get("score"),
-                              "ratio": x.get("ratio"),
-                              "text": str(x.get("text") or "")[:TEXT_HEAD + 500]}
-                             for x in g[:n]],
-                "note": "attempt text is head+tail of the model output"}
+                "attempts": [{"score": x.get("score"), "ratio": x.get("ratio"),
+                              **_excerpt(x.get("text"))} for x in g[:n]]}
     return {"error": f"unknown tool {name}"}
 
 
