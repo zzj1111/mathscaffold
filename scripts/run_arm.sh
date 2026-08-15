@@ -2,7 +2,7 @@
 # The arm loop: prepare data (controller update) -> train K steps -> repeat.
 # Usage: MS_ROOT=... run_arm.sh adaptive|static <n_cycles> [steps_per_cycle]
 set -eu
-ARM=$1; CYCLES=$2; K=${3:-8}
+ARM=$1; CYCLES=$2; K=${3:-10}
 ROOT=${MS_ROOT:?set MS_ROOT to the mathscaffold checkout}
 WORK=${MS_WORK:-$ROOT/runs/$ARM}
 mkdir -p $WORK

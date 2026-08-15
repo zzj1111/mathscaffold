@@ -27,7 +27,7 @@ python -m verl.trainer.main_ppo \
     custom_reward_function.path=$MS_ROOT/mathscaffold/reward.py \
     custom_reward_function.name=compute_score \
     trainer.n_gpus_per_node=8 trainer.nnodes=1 \
-    trainer.save_freq=${MS_SAVE_FREQ:-8} \
+    trainer.save_freq=${MS_SAVE_FREQ:-10} \
     trainer.default_local_dir=$CKPTS \
     trainer.total_training_steps=$STEP_TARGET \
     trainer.resume_mode=auto \

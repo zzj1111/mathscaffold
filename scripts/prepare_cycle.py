@@ -24,7 +24,7 @@ ap.add_argument("--switch-cycle", type=int, default=10)
 # trainer consumes exactly that many prompts per cycle, and every served problem
 # must produce outcomes for the controller
 ap.add_argument("--served", type=int,
-                default=int(os.environ.get("MS_K", "8")) * int(os.environ.get("MS_BS", "128")))
+                default=int(os.environ.get("MS_K", "10")) * int(os.environ.get("MS_BS", "128")))
 ap.add_argument("--out", required=True)
 a = ap.parse_args()
 
