@@ -41,13 +41,14 @@ MS_EXP=questa_teacher   MS_WORK=$MS_ROOT/runs/teacher \
 ```
 并行时给两臂各设 CUDA_VISIBLE_DEVICES 与 MS_N_GPUS=4。
 
-## 4. 周期探针(可选,建议每 3 周期)
-```bash
-# 对最新 ckpt 起 vLLM 后:
-python scripts/eval_probe.py --base-url http://... --set aime24 > /tmp/p.json
-# 把结果写入 $MS_WORK/probe.json({"cycle": N, "aime24": 0.xx, ...}),
-# teacher 下周期的开场白会自动带上
-```
+## 4. 自动探针(已内置,无需手动)
+`run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
+合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,
+n=32,temp 0.7 / top-p 0.95,Math-Verify)→ 写 `$MS_WORK/probe.json` → 关服务。
+结果自动进 teacher 下周期开场白与 wandb(`probe/aime24` 等)。
+可调:`MS_PROBE_SETS=aime24,aime25,hmmt25,math500`、`MS_PROBE_N=32`、`MS_PROBE_EVERY=5`。
+手动跑某个 ckpt:`MS_EXP=questa_teacher bash scripts/probe_ckpt.sh <cycle>`。
+论文锚点(QuestA-Nemotron-1.5B,pass@1@32):AIME24 72.50 / AIME25 62.29 / HMMT25 41.67。
 
 ## 冒烟已在 4xH200 验证的事实(2026-08-14)
 - 全链路:parquet→GRPO+vLLM→Math-Verify(线程安全)→recorder→控制器分化(全败+15/全胜-15/混合不动)

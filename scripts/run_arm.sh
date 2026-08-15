@@ -13,7 +13,13 @@ for ((c=0; c<CYCLES; c++)); do
       --state $WORK/ratio_state.json \
       --rollout-log $WORK/rollouts_c$((c-1)).jsonl \
       --out $WORK/train_c$c.parquet 2>&1 | tee -a $WORK/arm.log
-  MATHSCAFFOLD_ROLLOUT_LOG=$RL MS_EXP=questa_$ARM \
+  MATHSCAFFOLD_ROLLOUT_LOG=$RL MS_EXP=${MS_EXP:-questa_$ARM} \
       bash $ROOT/scripts/train_stage.sh $STEP $WORK/train_c$c.parquet \
       2>&1 | tee -a $WORK/train_c$c.log
+  # hint-free probe every MS_PROBE_EVERY cycles (default 5 = 50 steps): AIME24/25,
+  # HMMT25 -> probe.json (teacher preamble + wandb). Failure never stops training.
+  if [ $(( (c + 1) % ${MS_PROBE_EVERY:-5} )) -eq 0 ]; then
+    MS_EXP=${MS_EXP:-questa_$ARM} bash $ROOT/scripts/probe_ckpt.sh $((c + 1)) \
+        2>&1 | tee -a $WORK/probe.log || echo "[probe] failed at cycle $((c+1)), continuing"
+  fi
 done
