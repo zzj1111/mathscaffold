@@ -1,19 +1,16 @@
 # mathscaffold: QuestA 复现 + 逐题自适应剂量
 
-三臂,同数据、同基座(OpenMath-Nemotron-1.5B)、同算力(8xB200)。
-数据 = QuestA 两个阶段文件的合并去重池(≈8.8k 题;论文原版分阶段用不同子集,
-用户决定不分阶段、一池同训;qid 为题面哈希)。评测 n=32 对齐论文协议:
-- **static**:QuestA 原版全局课程(所有题 r=50,switch_cycle 后 r=25)。纯 hint。
-- **adaptive**:逐题 r_q,组构成驱动——全败 +15(上限 90)、全胜 -15(下限 0)、
-  混合不动;r=0 后裸探测:成功即毕业,失败回 25;毕业后复发再拉回。纯 hint。
-- **teacher**:调查型 teacher(teacherflow,与 ALFWorld/Search 同一工作流)握完整
-  四形态决策空间——题级 hint 前缀(ratio_ops)+ 题型级文本(item_ops:skill/
-  example/plan,p_ops 剂量,ALFWorld 语义:general 随行、组内同 prompt、构建期
-  掷币、记录 text_inj 供注入/裸拆分)。毕业记账保持机械;坏输出回退 adaptive 规则。
-  两次真 API 行为测试通过(方向全对;文本条目为读轨迹后针对病灶所写)。
-
-假说:同算力下自适应 > 静态(静态浪费在两处:仍全败的题提示不够浓、已会的题提示
-赖着不走)。指标:AIME24/25、MATH500 的 hint-free pass@1(temp0.7/top-p0.95/n16)。
+两臂(只跑我们自己的方法;QuestA 原版不复现,其论文数字与发布 ckpt 作外部基线),
+同数据、同基座(OpenMath-Nemotron-1.5B)、同算力(8xB200)。
+数据 = QuestA 两阶段文件合并去重池(8,843 题,qid=题面哈希,不分阶段一池同训)。
+评测 n=32 对齐论文协议(AIME24 72.50 / AIME25 62.29 为对表锚点):
+- **adaptive**:逐题 r_q,组构成机械规则——全败 +15(上限 90)、全胜 -15(下限 0)、
+  混合不动;r=0 裸探测:成功毕业,失败回 25;毕业后复发再拉回。纯 hint。
+- **teacher**:调查型 teacher(与 ALFWorld/Search 同一工作流)握完整形态决策空间——
+  题级 hint 前缀(ratio_ops)+ general 文本(skill/example/plan + 单一剂量 p)。
+  毕业记账机械;坏输出回退 adaptive 规则。三次真 API 行为测试通过。
+两臂差 = LLM 判断力(+文本形态)的净值;adaptive 对 QuestA 数字的差 = 逐题自适应
+课程本身的净值。(static 复现代码保留未删,仅不排期。)
 
 ## 组件(全部本地干跑验证过)
 - mathscaffold/data.py       QuestA 式前缀切分 -> verl parquet(逐题 ratio)
