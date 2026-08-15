@@ -31,9 +31,10 @@ def _validate(decision):
             out["item_ops"].append(op)
     for op in decision.get("p_ops") or []:
         try:
-            key = "task" if "task" in op else "topic"
-            out["p_ops"].append({key: str(op[key]),
-                                 "p": max(0.0, min(0.5, float(op["p"])))})
+            clamped = max(0.0, min(0.5, float(op["p"])))
+            key = "task" if "task" in op else ("topic" if "topic" in op else None)
+            out["p_ops"].append({key: str(op[key]), "p": clamped} if key
+                                else {"p": clamped})
         except (KeyError, TypeError, ValueError):
             continue
     # pass through untouched: the arm-side normalize() owns cleaning and the cap

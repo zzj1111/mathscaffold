@@ -75,13 +75,11 @@ def dispatch(data, name, args):
             kind = "all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")
             b["problems"] += 1
             b[kind] += 1
-            # per-topic, split by whether the TEXT scaffold was injected (the coin is
-            # per problem-cycle), mirroring the ALFWorld injected/bare composition
-            topic = g[0].get("topic") or "other"
+            # split by whether the TEXT scaffold was injected (coin per
+            # problem-cycle), mirroring the ALFWorld injected/bare composition
             side = "text" if g[0].get("text_inj") else "bare"
-            t = by_topic.setdefault(topic, {})
-            tt = t.setdefault(side, {"problems": 0, "all_fail": 0, "mixed": 0,
-                                     "all_pass": 0})
+            tt = by_topic.setdefault(side, {"problems": 0, "all_fail": 0,
+                                            "mixed": 0, "all_pass": 0})
             tt["problems"] += 1
             tt[kind] += 1
         states = {"active": 0, "graduated": 0}
@@ -89,7 +87,7 @@ def dispatch(data, name, args):
             states[h.get("state") or "active"] = states.get(h.get("state") or "active", 0) + 1
         return {"window_problems": len(groups),
                 "by_ratio_bucket": by_bucket,
-                "by_topic_text_split": by_topic,
+                "text_vs_bare": by_topic,
                 "text_scaffold": {"items": {sc: [{"id": i["id"], "kind": i["kind"],
                                                   "text": i["text"][:120]}
                                                  for i in v]
@@ -131,10 +129,11 @@ what it elicits must survive into the weights to count.
 You control TWO independent scaffold families:
 1. HINT PREFIX (per problem): the first r% (by characters) of the reference solution,
    spliced as '## Hint.'. r=0 is a bare probe; success there means genuinely learned.
-2. TEXT NOTES (per topic): reusable items spliced as '## Notes.' into that topic's
-   prompts under a per-topic probability p. Kinds: "skill" (a strategy/fact),
-   "example" (a short worked example), "plan" (a solution skeleton). General-scope
-   items ride along with every topic's block.
+2. TEXT NOTES (general): reusable items spliced as '## Notes.' into training
+   prompts under ONE probability p. Kinds: "skill" (a strategy/fact), "example"
+   (a short worked example), "plan" (a solution skeleton). Math problems do not
+   factor into mechanical categories, so notes are global; per-problem targeting
+   belongs to the hint ratio.
 
 A problem's group is its sampled rollouts for one prompt; if all score the same, the
 group yields no gradient. Interventions only matter where groups still yield
@@ -151,16 +150,16 @@ Return, as your FINAL message (no tool call), ONLY this JSON:
    {"scope": "bucket", "outcome": "all_fail"|"all_pass"|"mixed",
     "r_min": <0..90>, "r_max": <0..90>, "delta": <-20..20>} |
    {"scope": "qid", "qid": "...", "set": <0..90>}],
- "item_ops": [{"op": "add", "scope": "<general|algebra|geometry|number_theory|combinatorics|other>",
+ "item_ops": [{"op": "add", "scope": "general",
                "kind": "skill"|"example"|"plan", "text": "..."} |
               {"op": "update", "id": "...", "kind": "...", "text": "..."} |
               {"op": "delete", "id": "..."}],
- "p_ops": [{"topic": "<topic>", "p": <0..0.5>}]}
+ "p_ops": [{"p": <0..0.5>}]}
 Empty ops means no intervention this cycle.
 
 HARD CONSTRAINTS (violations are clamped or the op family is voided, never fatal):
 - ratio: at most 4 bucket ops and 16 qid ops; delta clamped to +-20; r in [0, 90];
 - text: at most 3 add/update ops per cycle (deletes free); skill/plan <= 500 chars,
-  example <= 1500; no duplicate text in a scope; p in [0, 0.5];
+  example <= 1500; no duplicates; ONE global p in [0, 0.5];
 - graduation bookkeeping is mechanical (bare success graduates; bare failure after
   graduation relapses) — you steer doses for ACTIVE problems only."""

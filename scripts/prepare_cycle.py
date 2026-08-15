@@ -25,10 +25,6 @@ a = ap.parse_args()
 
 problems = D.load_problems(a.jsonl)
 state = C.load_state(a.state, problems)
-topics = {}
-tp = os.environ.get("MS_TOPICS", "/mnt/data1/zha00175/math_prep/topics.json")
-if os.path.exists(tp):
-    topics = json.load(open(tp))
 
 outcomes = {}
 if a.rollout_log and os.path.exists(a.rollout_log):
@@ -77,7 +73,7 @@ qids = [p["qid"] for p in problems]
 random.Random(20260814).shuffle(qids)
 lo = (a.cycle * a.served) % len(qids)
 served = set((qids + qids)[lo:lo + a.served])
-rows = D.build_rows(problems, state, served, cycle=a.cycle, topics=topics)
+rows = D.build_rows(problems, state, served, cycle=a.cycle)
 D.write_parquet(rows, a.out)
 C.save_state(state, a.state)
 print(f"[prepare] cycle {a.cycle}: {len(rows)} rows -> {a.out}")

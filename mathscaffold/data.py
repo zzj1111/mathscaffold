@@ -39,30 +39,27 @@ def hint_prompt(problem, solution, ratio):
     return problem + "\n\n" + "## Hint." + prefix
 
 
-def build_rows(problems, state, served_qids=None, cycle=0, topics=None):
+def build_rows(problems, state, served_qids=None, cycle=0):
     """verl-style rows for the served problems: per-problem hint ratio plus the
-    text-form scaffold (skill/example/plan notes) under its per-topic coin."""
+    general text scaffold (skill/example/plan notes) under one dose coin."""
     from . import textscaffold as TS
     probs = state.get("problems", state)
     text = state.get("text") or TS.empty_text()
-    topics = topics or {}
     rows = []
     for p in problems:
         if served_qids is not None and p["qid"] not in served_qids:
             continue
         r = float((probs.get(p["qid"]) or {}).get("r", 0.0))
-        topic = topics.get(p["qid"], "other")
         body = hint_prompt(p["problem"], p["solution"], r)
-        has_text = TS.coin(text, p["qid"], topic, cycle)
+        has_text = TS.coin(text, p["qid"], cycle)
         if has_text:
-            body = TS.render(text, topic) + "\n\n" + body
+            body = TS.render(text) + "\n\n" + body
         rows.append({
             "data_source": "questa_math",
             "prompt": [{"role": "user", "content": body}],
             "ability": "math",
             "reward_model": {"style": "rule", "ground_truth": "\\boxed{" + p["answer"] + "}"},
-            "extra_info": {"qid": p["qid"], "ratio": r, "topic": topic,
-                           "text_inj": bool(has_text)},
+            "extra_info": {"qid": p["qid"], "ratio": r, "text_inj": bool(has_text)},
         })
     return rows
 

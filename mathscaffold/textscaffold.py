@@ -11,8 +11,7 @@ import copy
 import hashlib
 import re
 
-TOPICS = ("algebra", "geometry", "number_theory", "combinatorics", "other")
-SCOPES = ("general",) + TOPICS
+SCOPES = ("general",)
 KINDS = ("skill", "example", "plan")
 MAX_ITEMS_PER_SCOPE = 8
 MAX_CHARS = {"skill": 500, "plan": 500, "example": 1500}
@@ -21,7 +20,7 @@ P_MAX = 0.5
 
 
 def empty_text():
-    return {"items": {s: [] for s in SCOPES}, "p": {t: 0.0 for t in TOPICS}, "next_n": 1}
+    return {"items": {s: [] for s in SCOPES}, "p": {"general": 0.0}, "next_n": 1}
 
 
 def _norm(t):
@@ -79,27 +78,24 @@ def apply_item_ops(text, ops):
 def apply_p_ops(text, p_ops):
     notes = []
     for op in p_ops or []:
-        t = op.get("topic")
-        if t in TOPICS:
-            try:
-                text["p"][t] = max(0.0, min(P_MAX, float(op.get("p"))))
-                notes.append(f"p:{t}={text['p'][t]}")
-            except (TypeError, ValueError):
-                pass
+        try:
+            text["p"]["general"] = max(0.0, min(P_MAX, float(op.get("p"))))
+            notes.append(f"p={text['p']['general']}")
+        except (TypeError, ValueError):
+            pass
     return text, notes
 
 
-def render(text, topic):
+def render(text):
     parts = [i["text"] for i in text["items"].get("general", [])]
-    parts += [i["text"] for i in text["items"].get(topic or "other", [])]
     if not parts:
         return ""
     return "## Notes.\n" + "\n".join(f"- {t}" for t in parts)
 
 
-def coin(text, qid, topic, cycle):
-    p = float(text["p"].get(topic or "other", 0.0))
-    if p <= 0 or not render(text, topic):
+def coin(text, qid, cycle):
+    p = float(text["p"].get("general", 0.0))
+    if p <= 0 or not render(text):
         return False
     h = hashlib.sha1(f"{cycle}:{qid}".encode()).digest()
     return (int.from_bytes(h[:4], "big") / 2**32) < p
