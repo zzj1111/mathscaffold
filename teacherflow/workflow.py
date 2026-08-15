@@ -12,7 +12,7 @@ from . import tools as T
 from .prompts import SYSTEM
 
 MAX_TOOL_CALLS = 10
-MAX_EVIDENCE_CHARS = 60_000
+MAX_EVIDENCE_CHARS = 100_000
 
 
 def _digest(result):

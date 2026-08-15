@@ -9,8 +9,8 @@ Search domain.
 from __future__ import annotations
 
 MAX_TRACES_PER_CALL = 8
-O_TRIM = 240
-STEP_CAP = 30           # ALFWorld episodes run to 50 steps; cap what one trace costs
+O_TRIM = 160
+STEP_CAP = 24           # ALFWorld episodes run to 50 steps; cap what one trace costs
 
 CATEGORIES = ("pick_and_place", "pick_two_obj_and_place", "look_at_obj_in_light",
               "pick_heat_then_place_in_recep", "pick_cool_then_place_in_recep",
@@ -25,11 +25,22 @@ def _game(row):
 
 def _trace(row):
     steps = row.get("steps") or []
+    # collapse consecutive repeats of the same action (all-fail groups are mostly
+    # 50-step loops): keep the first, count the rest — cheaper and MORE readable
+    out, last = [], None
+    for s in steps[:STEP_CAP * 2]:
+        a = s.get("a")
+        if last is not None and a == last["a"]:
+            last["x"] = last.get("x", 1) + 1
+            continue
+        last = {"a": a, "o": str(s.get("o") or "")[:O_TRIM], "v": s.get("v", True)}
+        out.append(last)
+        if len(out) >= STEP_CAP:
+            break
     return {"game": _game(row), "task_type": row.get("task_type"),
             "injected": bool(row.get("injected")), "success": row.get("success"),
-            "n_steps": len(steps),
-            "steps": [{"a": s.get("a"), "o": str(s.get("o") or "")[:O_TRIM],
-                       "v": s.get("v", True)} for s in steps[:STEP_CAP]]}
+            "n_steps": len(steps), "steps": out,
+            "note": "x = consecutive repeats collapsed" if any("x" in o for o in out) else None}
 
 
 TOOL_SPECS = [
@@ -50,6 +61,9 @@ TOOL_SPECS = [
             "task_type": {"type": "string", "enum": list(CATEGORIES)},
             "success": {"type": "integer", "enum": [0, 1]},
             "injected": {"type": "boolean"},
+            "all_fail_only": {"type": "boolean",
+                              "description": "only rollouts from ALL-FAIL groups "
+                                             "(the zero-gradient ones); default false"},
             "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL},
             "offset": {"type": "integer", "minimum": 0}},
             "required": ["task_type"]}}},
@@ -156,6 +170,14 @@ def dispatch(data, name, args):
             sub = [r for r in sub if (float(r.get("success") or 0) > 0) == want]
         if "injected" in args and args["injected"] is not None:
             sub = [r for r in sub if bool(r.get("injected")) == bool(args["injected"])]
+        if args.get("all_fail_only"):
+            byu = {}
+            for r in rows:
+                if r.get("task_type") == cat:
+                    byu.setdefault(r.get("uid"), []).append(r)
+            af = {u for u, g in byu.items()
+                  if len(g) >= 2 and all(float(x.get("success") or 0) <= 0 for x in g)}
+            sub = [r for r in sub if r.get("uid") in af]
         off = int(args.get("offset") or 0)
         n = min(int(args.get("n") or 4), MAX_TRACES_PER_CALL)
         return {"total_matching": len(sub), "traces": [_trace(r) for r in sub[off:off + n]]}
@@ -198,8 +220,10 @@ groups with at least one success (that is when gradient appears), and prefer tha
 over polishing categories that are already mostly solved. get_stats reports all-fail
 tracking (new vs recurring vs escaped, per category): recurring all-fail games are
 where support is the ONLY lever; escaped ones tell you what unlocked them. Read the
-failed trajectories of all-fail groups (get_traces with success=0, get_group) to find
-the missing piece before writing text — text that names the specific missing step or
+failed trajectories of all-fail groups (get_traces with all_fail_only=true, or
+get_group on a game named in the tracking) to find the missing piece before writing
+text — plain success=0 traces mostly come from MIXED groups, which is not where you
+should be looking — text that names the specific missing step or
 object handling is what can unlock them, generic advice cannot.
 Text changes are gated: an A/B on held-out games must show your candidate beating
 the current scaffold, else it is rejected and any bundled p change dies with it.
