@@ -20,7 +20,11 @@ ap.add_argument("--rollout-log", default=None)
 ap.add_argument("--arm", choices=["adaptive", "static", "teacher"], required=True)
 ap.add_argument("--cycle", type=int, required=True)
 ap.add_argument("--switch-cycle", type=int, default=10)
-ap.add_argument("--served", type=int, default=2048)
+# served slice MUST equal steps_per_cycle x train_batch (default 8 x 128): the
+# trainer consumes exactly that many prompts per cycle, and every served problem
+# must produce outcomes for the controller
+ap.add_argument("--served", type=int,
+                default=int(os.environ.get("MS_K", "8")) * int(os.environ.get("MS_BS", "128")))
 ap.add_argument("--out", required=True)
 a = ap.parse_args()
 
