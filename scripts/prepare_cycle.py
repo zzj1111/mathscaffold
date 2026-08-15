@@ -13,7 +13,8 @@ from mathscaffold import controller as C, data as D
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--jsonl", default=os.environ.get("MS_DATA",
-                "/mnt/data1/zha00175/math_prep/questa_12k/OpenR1-25-0-4.jsonl"))
+                "/mnt/data1/zha00175/math_prep/questa_12k/OpenR1-25-0-4.jsonl,"
+                "/mnt/data1/zha00175/math_prep/questa_12k/OpenR1-50-0-4.jsonl"))
 ap.add_argument("--state", default="ratio_state.json")
 ap.add_argument("--rollout-log", default=None)
 ap.add_argument("--arm", choices=["adaptive", "static", "teacher"], required=True)

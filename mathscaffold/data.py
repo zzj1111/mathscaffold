@@ -7,35 +7,42 @@ here (the adaptive arm's whole point); r=0 means a bare prompt.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 
 
-def load_problems(jsonl_path):
-    """-> list of {qid, problem, answer, solution}; qid is the stable line index of
-    the FIRST occurrence. QuestA's files repeat problems with different reference
-    generations — dedupe by problem text, else per-problem ratio state splits
-    across duplicates and the same problem can be served twice in one cycle."""
+def load_problems(jsonl_paths):
+    """-> list of {qid, problem, answer, solution} from one path or a
+    comma-separated list (QuestA ships two stage files; we train one merged pool).
+    qid = content hash of the normalized problem text: stable across files, file
+    order, and reruns. Dedupe by the same key — QuestA's files repeat problems
+    with different reference generations, and the two files overlap."""
     out = []
     seen = set()
-    with open(jsonl_path) as f:
-        for i, line in enumerate(f):
-            try:
-                d = json.loads(line)
-            except ValueError:
-                continue
-            gen = d.get("generation") or ""
-            if gen[:1] == '"':
-                gen = gen[1:-1]
-            solution = gen.split("</think>")[-1]
-            answer = str(d.get("answer") or "")
-            if not answer or answer not in solution:
-                continue
-            key = " ".join(str(d["problem"]).split())
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append({"qid": f"q{i}", "problem": d["problem"],
-                        "answer": answer, "solution": solution})
+    for jsonl_path in str(jsonl_paths).split(","):
+        jsonl_path = jsonl_path.strip()
+        if not jsonl_path:
+            continue
+        with open(jsonl_path) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                gen = d.get("generation") or ""
+                if gen[:1] == '"':
+                    gen = gen[1:-1]
+                solution = gen.split("</think>")[-1]
+                answer = str(d.get("answer") or "")
+                if not answer or answer not in solution:
+                    continue
+                key = " ".join(str(d["problem"]).split())
+                if key in seen:
+                    continue
+                seen.add(key)
+                qid = "q" + hashlib.sha1(key.encode()).hexdigest()[:10]
+                out.append({"qid": qid, "problem": d["problem"],
+                            "answer": answer, "solution": solution})
     return out
 
 

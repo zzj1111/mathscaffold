@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 ap = argparse.ArgumentParser()
 ap.add_argument("--base-url", required=True)
 ap.add_argument("--set", default="aime24", choices=["aime24", "aime25", "math500"])
-ap.add_argument("--n", type=int, default=16)
+ap.add_argument("--n", type=int, default=32)
 ap.add_argument("--max-tokens", type=int, default=30720)
 a = ap.parse_args()
 

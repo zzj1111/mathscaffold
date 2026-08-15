@@ -1,6 +1,8 @@
 # mathscaffold: QuestA 复现 + 逐题自适应剂量
 
-三臂,同数据(QuestA 12.5k 难题)、同基座(OpenMath-Nemotron-1.5B)、同算力(8xB200):
+三臂,同数据、同基座(OpenMath-Nemotron-1.5B)、同算力(8xB200)。
+数据 = QuestA 两个阶段文件的合并去重池(≈8.8k 题;论文原版分阶段用不同子集,
+用户决定不分阶段、一池同训;qid 为题面哈希)。评测 n=32 对齐论文协议:
 - **static**:QuestA 原版全局课程(所有题 r=50,switch_cycle 后 r=25)。纯 hint。
 - **adaptive**:逐题 r_q,组构成驱动——全败 +15(上限 90)、全胜 -15(下限 0)、
   混合不动;r=0 后裸探测:成功即毕业,失败回 25;毕业后复发再拉回。纯 hint。
