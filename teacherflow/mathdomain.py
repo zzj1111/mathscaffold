@@ -49,12 +49,17 @@ TOOL_SPECS = [
             "required": ["outcome"]}}},
     {"type": "function", "function": {
         "name": "get_traces",
-        "description": "ONE problem in full: statement, reference solution, and up to "
-                       f"{MAX_TRACES_PER_CALL} rollout excerpts (head+tail) with scores.",
+        "description": "ONE problem in full (statement, reference solution, up to "
+                       f"{MAX_TRACES_PER_CALL} rollout excerpts with scores) when qid is "
+                       "given; or, with all_fail_batch=true and no qid, a compact sweep "
+                       "of up to 4 ALL-FAIL problems (statement + 1 failed excerpt each) "
+                       "— the fast way to look for the missing piece across the "
+                       "zero-gradient set.",
         "parameters": {"type": "object", "properties": {
             "qid": {"type": "string"},
-            "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL}},
-            "required": ["qid"]}}},
+            "all_fail_batch": {"type": "boolean"},
+            "offset": {"type": "integer", "minimum": 0},
+            "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL}}}}},
 ]
 
 
@@ -92,8 +97,18 @@ def dispatch(data, name, args):
         reseen = {q for q in prev_fail if q in groups}
         escaped = {q for q in reseen
                    if any(float(x.get("score") or 0) > 0 for x in groups[q])}
-        fate = {"last_window_all_fail": len(prev_fail), "reseen_now": len(reseen),
-                "escaped": len(escaped), "still_all_fail": len(reseen - escaped),
+        af_now = {q for q, g in groups.items()
+                  if all(float(x.get("score") or 0) <= 0 for x in g)}
+        af_text = sum(1 for q in af_now if groups[q][0].get("text_inj"))
+        esc_text = sum(1 for q in escaped if groups[q][0].get("text_inj"))
+        fate = {"all_fail_now": len(af_now),
+                # text was in the prompt and did NOT unlock them (content question) vs
+                # text never reached them (dose question)
+                "all_fail_now_with_text": af_text,
+                "all_fail_now_bare": len(af_now) - af_text,
+                "last_window_all_fail": len(prev_fail), "reseen_now": len(reseen),
+                "escaped": len(escaped), "escaped_with_text": esc_text,
+                "still_all_fail": len(reseen - escaped),
                 "escaped_ratios_now": sorted({float((probs.get(q) or {}).get("r", 0))
                                               for q in escaped})[:8]}
         return {"window_problems": len(groups),
@@ -122,6 +137,22 @@ def dispatch(data, name, args):
         off = int(args.get("offset") or 0)
         n = min(int(args.get("n") or 20), 40)
         return {"total_matching": len(out), "problems": out[off:off + n]}
+    if name == "get_traces" and args.get("all_fail_batch") and not args.get("qid"):
+        probs = state.get("problems", state) if isinstance(state, dict) else {}
+        meta_all = getattr(data, "problems", None) or {}
+        af = sorted(q for q, g in groups.items()
+                    if all(float(x.get("score") or 0) <= 0 for x in g))
+        off = int(args.get("offset") or 0)
+        out = []
+        for q in af[off:off + 4]:
+            m = meta_all.get(q) or {}
+            g = groups[q]
+            out.append({"qid": q, "r": float((probs.get(q) or {}).get("r", g[0].get("ratio") or 0)),
+                        "text_inj": bool(g[0].get("text_inj")),
+                        "problem": str(m.get("problem") or "")[:500],
+                        "reference_tail": str(m.get("solution") or "")[-400:],
+                        "one_failed_excerpt": str(g[0].get("text") or "")[-500:]})
+        return {"total_all_fail": len(af), "offset": off, "problems": out}
     if name == "get_traces":
         qid = str(args.get("qid"))
         g = groups.get(qid) or []
@@ -160,9 +191,12 @@ sampling. Judge every intervention by whether it can turn all-fail groups into g
 with at least one success (that is when gradient appears): raise the hint ratio on
 all-fail problems until they become mixed, then let RL learn them and anneal. Prefer
 that over polishing problems that are already mostly solved. get_stats reports each
-ratio bucket's all-fail/mixed/all-pass split and last window's all-fail problems'
-fate this window (escaped vs still all-fail) — what unlocked escaped ones is your most
-direct evidence of the right dose.
+ratio bucket's all-fail/mixed/all-pass split, all-fail problems split by whether text
+notes were in their prompt (bare = dose question; with text = content question), and
+last window's all-fail problems' fate this window (escaped vs still all-fail) — what
+unlocked escaped ones is your most direct evidence of the right dose. Use
+get_traces(all_fail_batch=true) to sweep the zero-gradient set quickly, then
+get_traces(qid) on the ones worth a full read.
 
 INVESTIGATION: read-only tools over this cycle's rollouts, the ratio state and the
 text scaffold. The user message states your EXACT budgets; every result carries
