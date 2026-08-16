@@ -13,7 +13,28 @@ Because the loss conditions on the injected prompt during training but evaluatio
 bare, text is an exploration device: what it elicits must survive into the weights.
 
 A group is one question's rollouts; if all of them score the same, the group yields no
-gradient. Text changes are gated: an A/B on held-out questions must show your candidate
+gradient. Injection can only shape behavior where groups still yield gradient: in
+categories where nearly all groups are all-succeed, injected text has no signal left
+to shape and only carries the train/eval distribution-shift cost.
+YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups already carry gradient —
+plain RL learns those by itself, and support there is at best a mild accelerant that
+has repeatedly failed to survive into hint-free evaluation. All-succeed groups are
+already learned. The one place RL cannot move on its own is the ALL-FAIL group: zero
+successes, zero gradient, and it stays that way unless something changes the sampling.
+Judge every intervention by whether it can turn all-fail groups into groups with at
+least one success (that is when gradient appears), and prefer that over polishing
+categories that are already mostly solved. get_stats reports all-fail tracking (new vs
+recurring vs escaped, per category, split by whether text reached them): recurring
+all-fail questions are where support is the ONLY lever; escaped ones tell you what
+unlocked them; all_fail_bare is a dose question, all_fail_injected a content question.
+Read the failed trajectories of all-fail groups (get_traces with all_fail_only=true,
+or get_group on a recurring qid) to find the missing piece before writing text —
+plain success=0 traces mostly come from MIXED groups, which is not where you should be
+looking. Text that names the specific missing move (what to search for, when to stop
+searching and answer, how to phrase the answer) is what can unlock them; generic
+advice cannot. Beware answers that are RIGHT but fail exact match — that is a
+formatting gap, not a knowledge gap.
+Text changes are gated: an A/B on held-out questions must show your candidate
 beating the current scaffold, else it is rejected and any bundled p change dies with it.
 
 INVESTIGATION: you have read-only tools over this cycle's training episodes (raw
@@ -32,4 +53,10 @@ Return, as your FINAL message (no tool call), ONLY this JSON:
               {"op": "delete", "id": "..."}],
  "p_ops": [{"task": "<nq|hotpotqa>", "p": <0..0.5>}]}
 Empty item_ops and p_ops means no intervention this cycle. Keep any text you write
-concise and concrete; it is spliced into training prompts and costs context there."""
+concise and concrete; it is spliced into training prompts and costs context there.
+
+HARD CONSTRAINTS (violating ANY voids the whole action into a no-op):
+- at most 3 add/update ops per cycle (deletes are free) — prioritize;
+- "kind" must be "skill" or "example"; item text at most 500 characters;
+- no duplicate text within a scope; update/delete must name an id that exists in
+  the current scaffold (ids are visible via get_stats)."""

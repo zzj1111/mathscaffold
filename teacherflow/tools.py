@@ -41,6 +41,11 @@ TOOL_SPECS = [
             "injected": {"type": "boolean"},
             "has_answer_tag": {"type": "boolean",
                                "description": "whether the episode ever emitted <answer>"},
+            "all_fail_only": {"type": "boolean",
+                              "description": "only rollouts from ALL-FAIL groups (the "
+                                             "zero-gradient ones); default false. Capped "
+                                             "at 4 traces per call so every category "
+                                             "fits the budget"},
             "n": {"type": "integer", "minimum": 1, "maximum": MAX_TRACES_PER_CALL},
             "offset": {"type": "integer", "minimum": 0}},
             "required": ["category"]}}},
@@ -68,14 +73,68 @@ def dispatch(data, name, args):
             gs = [g for g in data.groups.values()
                   if g and g[0].get("data_source") == cat]
             complete = [g for g in gs if len(g) >= 2]
+            # per side, the group composition — mixed groups are the only ones that
+            # yield gradient (same surface as the ALFWorld/math domains)
+            for side in (True, False):
+                key = "injected" if side else "bare"
+                gpart = [g for g in complete if bool(g[0].get("injected")) == side]
+                comp = {"all_succeed": 0, "mixed": 0, "all_fail": 0}
+                for g in gpart:
+                    succ = [float(r.get("success") or 0) > 0 for r in g]
+                    comp["all_succeed" if all(succ) else
+                         ("all_fail" if not any(succ) else "mixed")] += 1
+                d[key]["groups"] = {"n": len(gpart), **comp}
             allf = sum(1 for g in complete
                        if all(float(r.get("success") or 0) <= 0 for r in g))
             alls = sum(1 for g in complete
                        if all(float(r.get("success") or 0) > 0 for r in g))
             d["groups"] = {"complete": len(complete), "all_fail": allf,
-                           "all_succeed": alls}
+                           "all_succeed": alls, "mixed": len(complete) - allf - alls}
             out[cat] = d
+        # ALL-FAIL TRACKING keyed by qid: recurring = all-fail last window too (rare
+        # under a no-replacement stream, decisive when it happens); escaped = all-fail
+        # then, >=1 success now; each split by whether text reached the group.
+        def _fail_qs(rs):
+            g = {}
+            for r in rs:
+                g.setdefault(r.get("qid"), []).append(r)
+            fails, seen, side, cat_of = set(), set(), {}, {}
+            for q, grp in g.items():
+                if len(grp) < 2:
+                    continue
+                seen.add(q)
+                cat_of[q] = grp[0].get("data_source")
+                if all(float(r.get("success") or 0) <= 0 for r in grp):
+                    fails.add(q)
+                    side[q] = bool(grp[0].get("injected"))
+            return fails, seen, side, cat_of
+        cur_f, cur_seen, cur_side, cat_of = _fail_qs(data.rows)
+        prev_f, prev_seen, _, _ = _fail_qs(getattr(data, "prev_rows", []) or [])
+        recurring = sorted(cur_f & prev_f)
+        escaped = sorted(prev_f & (cur_seen - cur_f))
+        by_cat = {}
+        blank = lambda: {"all_fail_now": 0, "recurring": 0,
+                         "all_fail_injected": 0, "all_fail_bare": 0}
+        for q in cur_f:
+            c = by_cat.setdefault(cat_of.get(q, "?"), blank())
+            c["all_fail_now"] += 1
+            c["all_fail_injected" if cur_side.get(q) else "all_fail_bare"] += 1
+        for q in recurring:
+            by_cat.setdefault(cat_of.get(q, "?"), blank())["recurring"] += 1
+        tracking = {
+            "all_fail_now": len(cur_f),
+            "recurring_all_fail": len(recurring),
+            "escaped_since_last_window": len(escaped),
+            "last_window_all_fail_not_reseen": len(prev_f - cur_seen),
+            "by_category": by_cat,
+            "recurring_qids": recurring[:12],
+            "note": "recurring all-fail = zero gradient twice in a row; RL cannot "
+                    "move these on its own. escaped = all-fail last time, at least "
+                    "one success now. all_fail_bare = text never reached them (a "
+                    "dose question); all_fail_injected = text was there and did "
+                    "not unlock them (a content question)."}
         return {"per_category": out,
+                "all_fail_tracking": tracking,
                 "scaffold": {"items": data.scaffold.get("items"),
                              "p_task": data.scaffold.get("p_task")},
                 "valid_seen_history": (data.state.get("decision_history") or [])
@@ -93,6 +152,12 @@ def dispatch(data, name, args):
             rows = [r for r in rows if bool(r.get("injected")) == bool(args["injected"])]
         if "has_answer_tag" in args and args["has_answer_tag"] is not None:
             rows = [r for r in rows if _has_answer(r) == bool(args["has_answer_tag"])]
+        if args.get("all_fail_only"):
+            # data.groups is keyed by uid (group id); match rows on uid, not qid
+            af = {u for u, g in data.groups.items()
+                  if len(g) >= 2 and all(float(r.get("success") or 0) <= 0 for r in g)}
+            rows = [r for r in rows if r.get("uid") in af]
+            args = {**args, "n": min(int(args.get("n") or 4), 4)}
         off = int(args.get("offset") or 0)
         n = min(int(args.get("n") or 5), MAX_TRACES_PER_CALL)
         return {"total_matching": len(rows),
