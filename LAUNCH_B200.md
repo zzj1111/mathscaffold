@@ -30,16 +30,32 @@ python scripts/eval_probe.py --base-url http://127.0.0.1:8100/v1 --set aime24
 # 应得 ≈0.725(论文 72.50);偏差大先查评测协议,不训练
 ```
 
-## 3. 两臂开跑(各 30 周期 = 300 步;可 4+4 卡并行或 8 卡串行)
+## 3. 开跑(只跑 teacher 臂,8 卡,30 周期 = 300 步)
 ```bash
-# 机械臂
-MS_EXP=questa_adaptive  MS_WORK=$MS_ROOT/runs/adaptive \
-  bash scripts/run_arm.sh adaptive 30 &
-# teacher 臂(完整形态)
-MS_EXP=questa_teacher   MS_WORK=$MS_ROOT/runs/teacher \
-  bash scripts/run_arm.sh teacher 30 &
+cd $MS_ROOT                                   # 必须在仓库根目录(runs/ 相对路径)
+source .venv/bin/activate                     # uv 环境 verl;或 export MS_PYTHON=/path/to/verl/.venv/bin/python
+export MS_ROOT=$PWD MS_N_GPUS=8               # 上面 0 节的 MS_MODEL/MS_CKPTS/MS_DATA/OPENAI_API_KEY/wandb 也都要在
+wandb login                                   # 一次性;没登录的话 nohup 会卡在交互提示上,preflight 会直接报 FAIL
+mkdir -p runs
+MS_EXP=questa_teacher MS_WORK=$MS_ROOT/runs/teacher \
+  nohup bash scripts/run_arm.sh teacher 30 > runs/teacher.log 2>&1 &
+sleep 20; cat runs/teacher.log                # 30 秒内必须看到 [preflight] ... OK — entering cycle loop
 ```
-并行时给两臂各设 CUDA_VISIBLE_DEVICES 与 MS_N_GPUS=4。
+`run_arm.sh` 开头有 **preflight**:打印 python/模块/模型/数据/ckpt 根/GPU/OpenAI key/wandb 登录状态,
+任一项不满足立即 `[preflight] FAIL: <原因>` 退出(exit 2)。所以 **teacher.log 空 = 进程根本没起来**
+(多半是 `nohup` 那行的重定向失败:`runs/` 不存在,或不在仓库根目录),不会再有"静默"情况。
+
+启动后自查:
+```bash
+tail -f runs/teacher.log                      # 依次:preflight OK → [prepare] cycle 0 → verl/Ray/vLLM 启动 → step:1 ...
+ls runs/teacher/                              # arm.log / train_c0.parquet / train_c0.log / rollouts_c0.jsonl 逐个出现
+nvidia-smi                                    # 2-3 分钟后 8 卡应有显存占用,生成期利用率 50%+
+```
+常见 FAIL 与处置:
+- `python module 'verl' missing` → 没激活 uv 环境;`source .venv/bin/activate` 或 `export MS_PYTHON=...`
+- `MS_DATA file not found` / `MS_MODEL dir not found` → 0 节的下载没做或路径不对
+- `wandb is not logged in` → `wandb login`(或 `export WANDB_API_KEY=...`);不想传就 `export MS_WANDB=0 MS_TRAINER_LOGGER="['console']"`
+- `teacher arm needs OPENAI_API_KEY` → export 它
 
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
