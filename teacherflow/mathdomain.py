@@ -120,9 +120,37 @@ def dispatch(data, name, args):
                 "still_all_fail": len(reseen - escaped),
                 "escaped_ratios_now": sorted({float((probs.get(q) or {}).get("r", 0))
                                               for q in escaped})[:8]}
+        # REVISITS: problems rotate (each cycle serves a fresh slice of the pool; a
+        # problem returns every ~pool/served cycles), so the dose you set today acts at
+        # the problem's NEXT visit. This block is the readout: for problems in this
+        # window that were seen before, their previous visit's (outcome, r) -> now.
+        wc = getattr(data, "window_cycle", None)
+        revisits = {}
+        n_revisit = 0
+        for qid, g in groups.items():
+            hist = (probs.get(qid) or {}).get("hist") or []
+            prev_e = [e for e in hist if wc is None or int(e.get("cycle", -1)) < int(wc)]
+            if not prev_e:
+                continue
+            e = prev_e[-1]
+            n_revisit += 1
+            ps, pn = int(e.get("succ") or 0), int(e.get("n") or 0)
+            pk = "all_fail" if ps == 0 else ("all_pass" if ps == pn else "mixed")
+            succ = sum(1 for x in g if float(x.get("score") or 0) > 0)
+            nk = "all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")
+            r_prev = float(e.get("r") or 0)
+            r_now = float(g[0].get("ratio") or 0)
+            key = f"prev {pk} @r={r_prev:g} -> now @r={r_now:g}"
+            d = revisits.setdefault(key, {"problems": 0, "all_fail": 0, "mixed": 0, "all_pass": 0})
+            d["problems"] += 1
+            d[nk] += 1
         return {"window_problems": len(groups),
                 "by_ratio_bucket": by_bucket,
                 "all_fail_fate": fate,
+                "revisits": {"note": "problems seen in an earlier cycle: previous visit's "
+                                     "outcome@dose -> this visit's outcome split; the "
+                                     "direct evidence for whether a dose change worked",
+                             "n_revisited": n_revisit, "by_transition": revisits},
                 "text_vs_bare": by_topic,
                 "text_scaffold": {"items": {sc: [{"id": i["id"], "kind": i["kind"],
                                                   "text": i["text"][:120]}
@@ -142,7 +170,11 @@ def dispatch(data, name, args):
             kind = "all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")
             r = float((probs.get(qid) or {}).get("r", g[0].get("ratio") or 0))
             if kind == want and rmin <= r <= rmax:
-                out.append({"qid": qid, "r": r, "succ": succ, "n": len(g)})
+                hist = ((probs.get(qid) or {}).get("hist") or [])[-3:]
+                out.append({"qid": qid, "r": r, "succ": succ, "n": len(g),
+                            "prev_visits": [{"cycle": e.get("cycle"), "r": e.get("r"),
+                                             "succ": e.get("succ"), "n": e.get("n")}
+                                            for e in hist]})
         off = int(args.get("offset") or 0)
         n = min(int(args.get("n") or 20), 40)
         return {"total_matching": len(out), "problems": out[off:off + n]}
@@ -198,6 +230,16 @@ You control TWO independent scaffold families:
    (a short worked example), "plan" (a solution skeleton). Math problems do not
    factor into mechanical categories, so notes are global; per-problem targeting
    belongs to the hint ratio.
+
+SERVING SCHEDULE (matters for what your ops can do): each cycle trains on a FRESH
+slice of the problem pool in a fixed rotation (~1280 of ~8800 problems per cycle), so a
+given problem comes back only every ~7 cycles. Consequences: (a) ratio_ops on this
+window's problems take effect at those problems' NEXT visit, not next cycle — next
+cycle's window is different problems at whatever dose they carry (default r=50 the
+first time); (b) text notes and p apply to next cycle's prompts immediately; (c) the
+readout for a dose change is get_stats.revisits (previous visit's outcome@dose -> this
+visit's outcome) and get_problems' prev_visits — judge earlier ratio decisions there,
+not by next cycle's all-fail count.
 
 A problem's group is its sampled rollouts for one prompt; if all score the same, the
 group yields no gradient. YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups

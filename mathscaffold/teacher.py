@@ -109,6 +109,7 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
         except (OSError, ValueError):
             recent = []
     data.state = {"recent": recent}
+    data.window_cycle = cycle - 1        # the rollouts being judged are cycle-1's
     preamble = (f"Cycle {cycle} just finished training. {probe_line}"
                 "Investigate as you see fit, then decide.")
     try:

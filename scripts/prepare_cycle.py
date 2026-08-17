@@ -55,6 +55,17 @@ elif a.arm == "teacher":
     book = {q: (s_, n_) for q, (s_, n_) in outcomes.items()
             if probs.get(q, {}).get("r", 1) <= 0 or probs.get(q, {}).get("state") == "graduated"}
     state, notes = C.adaptive_update(state, book, a.cycle)
+    # visit history for EVERY served problem (adaptive_update only books bare/graduated
+    # ones): {cycle, r in effect, succ, n}. Problems rotate (a slice of the pool per
+    # cycle, each problem back every ~pool/served cycles), so this is the only way the
+    # Teacher can later see "all-fail at r=50 last visit -> mixed at r=70 now" — the
+    # direct evidence for whether a dose change worked.
+    for q, (s_, n_) in outcomes.items():
+        h = probs.get(q)
+        if h is None or q in book:
+            continue
+        h["hist"] = (h.get("hist") or [])[-11:] + [
+            {"cycle": a.cycle - 1, "r": h.get("r"), "succ": s_, "n": n_}]
     probe_line = ""
     pf = os.path.join(os.path.dirname(a.state) or ".", "probe.json")
     if os.path.exists(pf):
