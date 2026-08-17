@@ -45,6 +45,18 @@ else
 fi
 pf "OK — entering cycle loop (logs: $WORK/arm.log, $WORK/train_cN.log; ckpts: $MS_CKPTS/$EXP)"
 
+# ship log tails + liveness + GPU to wandb run <exp>_watch (Logs tab shows the arm's
+# stdout live; status/alive drops to 0 with the last lines when the arm dies), so a
+# crash is diagnosable from the browser without ssh. MS_WATCH=0 disables.
+if [ "${MS_WANDB:-0}" = "1" ] && [ "${MS_WATCH:-1}" = "1" ]; then
+  STDOUT_LOG=${MS_STDOUT_LOG:-$(readlink -f /proc/$$/fd/1 2>/dev/null || true)}
+  [ -f "$STDOUT_LOG" ] || STDOUT_LOG=$WORK/arm.log
+  setsid nohup $PY $ROOT/scripts/wandb_watch.py --work $WORK --exp $EXP \
+      --stdout-log "$STDOUT_LOG" --arm-pid $$ --ckpts $MS_CKPTS \
+      >> $WORK/watch.log 2>&1 < /dev/null &
+  pf "wandb watch: run ${EXP}_watch tails $STDOUT_LOG (local: $WORK/watch.log)"
+fi
+
 # ---------------------------------------------------------------- cycle loop
 # Resume: MS_START_CYCLE=c restarts at cycle c; MS_SKIP_PREPARE=1 additionally reuses
 # the already-generated train_c$c.parquet (a training stage that died mid-way — the

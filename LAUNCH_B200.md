@@ -1,19 +1,44 @@
 # B200 启动手册(8 卡,两臂)
 
 ## 0. 一次性准备
+
+### 0a. 独立环境(必须;`alfworldauto/auto` 那个 venv 里的 verl 0.3.1.dev 是 ALFWorld agent 分支,
+main_ppo 无条件 make_envs、assert rollout.n==1、reward manager 只认 episode——跑不了数学)
+本仓库的 train_stage.sh 键名是在 **verl v0.7.0**(upstream tag,commit `f9c855f7`)上跑通的;
+本地实际用的是 zzj1111/Layer@cc8e57a7 = v0.7.0 + 纯增量 Dr.GRPO 文件,对 GRPO 路径无影响,
+所以 upstream v0.7.0 即可。已验证组合:python 3.12 / torch 2.8.0+cu128 / vllm 0.11.0 /
+flash-attn 2.8.1 / transformers 4.56.1 / ray 2.52.1 / math-verify 0.9.0。
+```bash
+# 解释器和 venv 都放持久盘(/home 是 pod 临时盘:uv 默认把 python 装在 ~/.local/share/uv,
+# pod 回收后 venv/bin/python 变悬空软链,bash 会静默跳过它落到 /opt/venv 的 3.10 —— 已踩过)
+export UV_PYTHON_INSTALL_DIR=/scratch/<you>/uv-python
+uv python install 3.12
+uv venv /scratch/<you>/msenv --python 3.12
+source /scratch/<you>/msenv/bin/activate
+uv pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+uv pip install vllm==0.11.0
+uv pip install flash-attn==2.8.1 --no-build-isolation
+git clone --branch v0.7.0 --depth 1 https://github.com/volcengine/verl.git /scratch/<you>/verl-0.7.0
+uv pip install -e /scratch/<you>/verl-0.7.0
+uv pip install math_verify openai wandb pandas pyarrow datasets huggingface_hub
+python -c "import verl, vllm, torch; print(verl.__version__, vllm.__version__, torch.__version__)"   # 0.7.0.dev 0.11.0 2.8.0+cu128
+export MS_PYTHON=/scratch/<you>/msenv/bin/python     # 之后所有脚本都用它,不依赖 PATH
+```
+
+### 0b. 仓库、数据、模型、变量
 ```bash
 git clone git@github.com:zzj1111/mathscaffold.git && cd mathscaffold
-pip install math_verify datasets    # verl/vllm 用机器上现成的
 huggingface-cli download foreverlasting1202/QuestA --repo-type dataset --local-dir data/questa_12k
 huggingface-cli download nvidia/OpenMath-Nemotron-1.5B --local-dir models/OpenMath-Nemotron-1.5B
 huggingface-cli download foreverlasting1202/QuestA-Nemotron-1.5B --local-dir models/QuestA-Nemotron-1.5B
 export MS_ROOT=$PWD
 export MS_MODEL=$MS_ROOT/models/OpenMath-Nemotron-1.5B
-export MS_CKPTS=/path/to/ckpts            # TODO: 那台机的 ckpt 根
+export MS_CKPTS=/scratch/<you>/ckpts_math          # 持久盘
 export MS_DATA="$MS_ROOT/data/questa_12k/OpenR1-25-0-4.jsonl,$MS_ROOT/data/questa_12k/OpenR1-50-0-4.jsonl"
-export OPENAI_API_KEY=...                 # teacher 臂需要
+export OPENAI_API_KEY=...                          # teacher 臂需要(别在共享 tmux 里明文敲,用 AUTOSCAFFOLD_OPENAI_KEY_FILE=<文件> 更稳)
 export MS_WANDB=1 MS_WANDB_ENTITY=mhong-university-of-minnesota MS_WANDB_PROJECT=mathscaffold
 export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT   # 训练器自己的 run 也进同一项目
+wandb login                                        # 一次性
 ```
 
 ## 1. 冒烟(半小时,验证那台机的 verl 键名)
@@ -45,7 +70,13 @@ sleep 20; cat runs/teacher.log                # 30 秒内必须看到 [preflight
 任一项不满足立即 `[preflight] FAIL: <原因>` 退出(exit 2)。所以 **teacher.log 空 = 进程根本没起来**
 (多半是 `nohup` 那行的重定向失败:`runs/` 不存在,或不在仓库根目录),不会再有"静默"情况。
 
-启动后自查:
+启动后自查(浏览器):wandb 项目 `mathscaffold` 里会出现三条 run——
+`questa_teacher`(verl 逐步指标)、`questa_teacher_arm`(每周期组构成/teacher 决策/探针)、
+**`questa_teacher_watch`**(Logs 页实时滚动 teacher.log + arm.log;`status/alive` 掉到 0 时
+`status/exit_reason` 表里是最后 40 行,`status/last_error` 表收集 Traceback/FAIL/[retry] 行;还有
+`gpu/util_mean`、`status/ckpt_step`)。崩了不用 ssh 就能看到怎么崩的。
+
+启动后自查(命令行):
 ```bash
 tail -f runs/teacher.log                      # 依次:preflight OK → [prepare] cycle 0 → verl/Ray/vLLM 启动 → step:1 ...
 ls runs/teacher/                              # arm.log / train_c0.parquet / train_c0.log / rollouts_c0.jsonl 逐个出现
