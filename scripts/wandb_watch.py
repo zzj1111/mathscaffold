@@ -135,7 +135,18 @@ def main():
                         cyc = int(m.group(1) or m.group(2))
             except OSError:
                 pass
-            metrics = {"status/alive": int(alive),
+            # the trainer's own wandb run drops points when a retry re-walks steps it
+            # already logged (monotonic-step rule), so its curve looks frozen during a
+            # resume; the tqdm bar in stdout is the truth of where training actually is
+            tstep = None
+            try:
+                txt = open(a.stdout_log, errors="replace").read()[-200000:]
+                bars = re.findall(r"Training Progress:\s*\d+%\|[^|]*\|\s*(\d+)/(\d+)", txt)
+                if bars:
+                    tstep = int(bars[-1][0])
+            except OSError:
+                pass
+            metrics = {"status/alive": int(alive), "status/train_step": tstep,
                        "status/ckpt_step": _int_file(os.path.join(a.ckpts, a.exp, "latest_checkpointed_iteration.txt")),
                        "status/cycle": cyc,
                        "status/stdout_idle_min": _mtime_age_min(a.stdout_log)}
