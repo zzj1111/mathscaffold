@@ -2,15 +2,25 @@
 
 ## 0. 一次性准备
 
-### 0a. 独立环境(必须;`alfworldauto/auto` 那个 venv 里的 verl 0.3.1.dev 是 ALFWorld agent 分支,
-main_ppo 无条件 make_envs、assert rollout.n==1、reward manager 只认 episode——跑不了数学)
-本仓库的 train_stage.sh 键名是在 **verl v0.7.0**(upstream tag,commit `f9c855f7`)上跑通的;
-本地实际用的是 zzj1111/Layer@cc8e57a7 = v0.7.0 + 纯增量 Dr.GRPO 文件,对 GRPO 路径无影响,
-所以 upstream v0.7.0 即可。已验证组合:python 3.12 / torch 2.8.0+cu128 / vllm 0.11.0 /
-flash-attn 2.8.1 / transformers 4.56.1 / ray 2.52.1 / math-verify 0.9.0。
+### 0a. 独立环境 —— 直接装打包好的离线环境(推荐)
+`alfworldauto/auto` 那个 venv 里的 verl 0.3.1.dev 是 ALFWorld agent 分支(main_ppo 无条件
+make_envs、assert rollout.n==1、reward manager 只认 episode),跑不了数学,不要复用。
+
+H200 上跑通的整套环境已经冻结成离线 wheelhouse 传到 HF(私有数据集 `Mingyi-Hong/mathscaffold-env`,
+6.1 GB,357 个 wheel + verl 源码 + 安装脚本;python 3.12 / torch 2.8.0+cu128(arch 含 sm_100)/
+vllm 0.11.0 / flash-attn 2.8.1 / verl v0.7.0+Dr.GRPO 增量 / math-verify 0.9.0;安装脚本在源机上
+从零验证过:不碰 PyPI,356 包解析安装 + verl 可编辑 + import 检查全过):
 ```bash
-# 解释器和 venv 都放持久盘(/home 是 pod 临时盘:uv 默认把 python 装在 ~/.local/share/uv,
-# pod 回收后 venv/bin/python 变悬空软链,bash 会静默跳过它落到 /opt/venv 的 3.10 —— 已踩过)
+hf download Mingyi-Hong/mathscaffold-env --repo-type dataset --local-dir /scratch/<you>/msenv_bundle
+bash /scratch/<you>/msenv_bundle/install_b200.sh /scratch/<you>/msenv     # ~5 分钟,末尾打印各版本 + cuda arch list
+export MS_PYTHON=/scratch/<you>/msenv/bin/python                          # 之后所有脚本都用它,不依赖 PATH/激活
+```
+解释器与 venv 都落在持久盘(脚本把 `UV_PYTHON_INSTALL_DIR` 放在 venv 旁边),pod 回收不会再出现
+`bin/python` 悬空软链静默落到系统 3.10 的情况。
+
+<details><summary>备选:从 PyPI 自己装(仅当 HF 不可达)</summary>
+
+```bash
 export UV_PYTHON_INSTALL_DIR=/scratch/<you>/uv-python
 uv python install 3.12
 uv venv /scratch/<you>/msenv --python 3.12
@@ -21,9 +31,9 @@ uv pip install flash-attn==2.8.1 --no-build-isolation
 git clone --branch v0.7.0 --depth 1 https://github.com/volcengine/verl.git /scratch/<you>/verl-0.7.0
 uv pip install -e /scratch/<you>/verl-0.7.0
 uv pip install math_verify openai wandb pandas pyarrow datasets huggingface_hub
-python -c "import verl, vllm, torch; print(verl.__version__, vllm.__version__, torch.__version__)"   # 0.7.0.dev 0.11.0 2.8.0+cu128
-export MS_PYTHON=/scratch/<you>/msenv/bin/python     # 之后所有脚本都用它,不依赖 PATH
+export MS_PYTHON=/scratch/<you>/msenv/bin/python
 ```
+</details>
 
 ### 0b. 仓库、数据、模型、变量
 ```bash
