@@ -71,11 +71,13 @@ cd $MS_ROOT                                   # 必须在仓库根目录(runs/ �
 source .venv/bin/activate                     # uv 环境 verl;或 export MS_PYTHON=/path/to/verl/.venv/bin/python
 export MS_ROOT=$PWD MS_N_GPUS=8               # 上面 0 节的 MS_MODEL/MS_CKPTS/MS_DATA/OPENAI_API_KEY/wandb 也都要在
 wandb login                                   # 一次性;没登录的话 nohup 会卡在交互提示上,preflight 会直接报 FAIL
-mkdir -p runs
-MS_EXP=questa_teacher MS_WORK=$MS_ROOT/runs/teacher \
-  nohup bash scripts/run_arm.sh teacher 30 > runs/teacher.log 2>&1 &
-sleep 20; cat runs/teacher.log                # 30 秒内必须看到 [preflight] ... OK — entering cycle loop
+MS_EXP=questa_teacher_b200 bash scripts/launch.sh teacher 30   # 起臂;打印 pid + 日志路径,20 秒后回显前几行
 ```
+`launch.sh` 会自动用**带日期的日志名**:标准输出在 `runs/teacher/logs/teacher_YYYYmmdd_HHMMSS.stdout.log`,
+本次启动的 arm.log / train_cN.log / probe.log / watch.log / wandb 本地文件在
+`runs/teacher/logs/YYYYmmdd_HHMMSS/`(`runs/teacher/logs/latest` 永远指向最新一次)。重启/续跑不会再
+往旧文件里追加,wandb 也不再往仓库目录写(以前 `git pull` 会撞 `wandb/debug.log`,已改)。
+
 `run_arm.sh` 开头有 **preflight**:打印 python/模块/模型/数据/ckpt 根/GPU/OpenAI key/wandb 登录状态,
 任一项不满足立即 `[preflight] FAIL: <原因>` 退出(exit 2)。所以 **teacher.log 空 = 进程根本没起来**
 (多半是 `nohup` 那行的重定向失败:`runs/` 不存在,或不在仓库根目录),不会再有"静默"情况。
@@ -92,6 +94,12 @@ tail -f runs/teacher.log                      # 依次:preflight OK → [prepare
 ls runs/teacher/                              # arm.log / train_c0.parquet / train_c0.log / rollouts_c0.jsonl 逐个出现
 nvidia-smi                                    # 2-3 分钟后 8 卡应有显存占用,生成期利用率 50%+
 ```
+续跑(训练进程卡死/被杀后从最近 ckpt 接着来,复用本周期 parquet):
+```bash
+mv runs/teacher/rollouts_c<N>.jsonl runs/teacher/rollouts_c<N>.stalled.jsonl      # 归档卡住那次的记录器,避免重复计数
+MS_START_CYCLE=<N> MS_SKIP_PREPARE=1 MS_EXP=questa_teacher_b200 bash scripts/launch.sh teacher 30
+```
+
 常见 FAIL 与处置:
 - `python module 'verl' missing` → 没激活 uv 环境;`source .venv/bin/activate` 或 `export MS_PYTHON=...`
 - `MS_DATA file not found` / `MS_MODEL dir not found` → 0 节的下载没做或路径不对

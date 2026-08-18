@@ -8,14 +8,24 @@ WORK=${MS_WORK:-$ROOT/runs/$ARM}
 EXP=${MS_EXP:-questa_$ARM}
 PY=${MS_PYTHON:-python3}
 mkdir -p $WORK
+# Every launch gets its own dated log directory (a retry/resume never appends into an
+# older launch's files); $WORK/logs/latest always points at the newest launch.
+RUN_TAG=${MS_RUN_TAG:-$(date +%Y%m%d_%H%M%S)}
+LOGDIR=$WORK/logs/$RUN_TAG
+mkdir -p $LOGDIR && ln -sfn $RUN_TAG $WORK/logs/latest
+ARM_LOG=$LOGDIR/arm.log
+# wandb's local files go under the launch's log dir, never into the repo checkout
+# (tracked-file collisions on `git pull` seen live on B200)
+export WANDB_DIR=${WANDB_DIR:-$LOGDIR/wandb}; mkdir -p $WANDB_DIR
 
 # ---------------------------------------------------------------- preflight
 # Everything that can make a launch die (or hang) silently is checked HERE, loudly,
 # before any GPU work: a launch whose log stops after "[preflight]" lines names its
 # own reason. (Seen live: a B200 launch that "showed nothing".)
-pf() { echo "[preflight] $(date +%T) $*" | tee -a $WORK/arm.log; }
+pf() { echo "[preflight] $(date +%T) $*" | tee -a $ARM_LOG; }
 die() { pf "FAIL: $*"; exit 2; }
-pf "arm=$ARM cycles=$CYCLES steps/cycle=$K exp=$EXP"
+pf "arm=$ARM cycles=$CYCLES steps/cycle=$K exp=$EXP launch=$RUN_TAG"
+pf "logs=$LOGDIR (symlink: $WORK/logs/latest) wandb_dir=$WANDB_DIR"
 pf "root=$ROOT work=$WORK"
 pf "python=$($PY -c 'import sys;print(sys.executable, sys.version.split()[0])' 2>/dev/null || echo MISSING)"
 $PY -c 'import sys;print(sys.executable)' >/dev/null 2>&1 || die "python '$PY' not runnable (activate the env or set MS_PYTHON)"
@@ -43,18 +53,18 @@ if [ "${MS_WANDB:-0}" = "1" ] && [ "${WANDB_MODE:-online}" = "online" ]; then
 else
   pf "wandb: off (MS_WANDB=${MS_WANDB:-0}, WANDB_MODE=${WANDB_MODE:-online})"
 fi
-pf "OK — entering cycle loop (logs: $WORK/arm.log, $WORK/train_cN.log; ckpts: $MS_CKPTS/$EXP)"
+pf "OK — entering cycle loop (logs: $LOGDIR/{arm,train_cN,probe,watch}.log; ckpts: $MS_CKPTS/$EXP)"
 
 # ship log tails + liveness + GPU to wandb run <exp>_watch (Logs tab shows the arm's
 # stdout live; status/alive drops to 0 with the last lines when the arm dies), so a
 # crash is diagnosable from the browser without ssh. MS_WATCH=0 disables.
 if [ "${MS_WANDB:-0}" = "1" ] && [ "${MS_WATCH:-1}" = "1" ]; then
   STDOUT_LOG=${MS_STDOUT_LOG:-$(readlink -f /proc/$$/fd/1 2>/dev/null || true)}
-  [ -f "$STDOUT_LOG" ] || STDOUT_LOG=$WORK/arm.log
+  [ -f "$STDOUT_LOG" ] || STDOUT_LOG=$ARM_LOG
   setsid nohup $PY $ROOT/scripts/wandb_watch.py --work $WORK --exp $EXP \
-      --stdout-log "$STDOUT_LOG" --arm-pid $$ --ckpts $MS_CKPTS \
-      >> $WORK/watch.log 2>&1 < /dev/null &
-  pf "wandb watch: run ${EXP}_watch tails $STDOUT_LOG (local: $WORK/watch.log)"
+      --stdout-log "$STDOUT_LOG" --arm-log "$ARM_LOG" --arm-pid $$ --ckpts $MS_CKPTS \
+      >> $LOGDIR/watch.log 2>&1 < /dev/null &
+  pf "wandb watch: run ${EXP}_watch tails $STDOUT_LOG (local: $LOGDIR/watch.log)"
 fi
 
 # ---------------------------------------------------------------- cycle loop
@@ -66,25 +76,25 @@ for ((c=${MS_START_CYCLE:-0}; c<CYCLES; c++)); do
   STEP=$(( (c + 1) * K ))
   RL=$WORK/rollouts_c$c.jsonl
   if [ "$c" = "${MS_START_CYCLE:-0}" ] && [ "${MS_SKIP_PREPARE:-0}" = "1" ] && [ -f $WORK/train_c$c.parquet ]; then
-    echo "[resume] cycle $c: reusing existing train_c$c.parquet, skipping prepare" | tee -a $WORK/arm.log
+    echo "[resume] cycle $c: reusing existing train_c$c.parquet, skipping prepare" | tee -a $ARM_LOG
   else
     $PY $ROOT/scripts/prepare_cycle.py --arm $ARM --cycle $c \
         --state $WORK/ratio_state.json \
         --rollout-log $WORK/rollouts_c$((c-1)).jsonl \
-        --out $WORK/train_c$c.parquet 2>&1 | tee -a $WORK/arm.log
+        --out $WORK/train_c$c.parquet 2>&1 | tee -a $ARM_LOG
   fi
   # a training stage may hang (seen: vLLM/Ray stall at 0% GPU for an hour); retry the
   # stage up to 2 more times from its checkpoint before giving up on the cycle
   for attempt in 1 2 3; do
-    bash $ROOT/scripts/stage_watchdog.sh $WORK/train_c$c.log $EXP &
+    bash $ROOT/scripts/stage_watchdog.sh $LOGDIR/train_c$c.log $EXP &
     WD=$!
     MATHSCAFFOLD_ROLLOUT_LOG=$RL MS_EXP=$EXP \
         bash $ROOT/scripts/train_stage.sh $STEP $WORK/train_c$c.parquet \
-        2>&1 | tee -a $WORK/train_c$c.log
+        2>&1 | tee -a $LOGDIR/train_c$c.log
     kill $WD 2>/dev/null || true
     LAST=$(cat $MS_CKPTS/$EXP/latest_checkpointed_iteration.txt 2>/dev/null || echo 0)
     [ "$LAST" -ge "$STEP" ] && break
-    echo "[retry] cycle $c attempt $attempt ended with ckpt $LAST < $STEP; resuming" | tee -a $WORK/arm.log
+    echo "[retry] cycle $c attempt $attempt ended with ckpt $LAST < $STEP; resuming" | tee -a $ARM_LOG
     # rows of the dead attempt would double-count in the next prepare: archive them
     [ -f $RL ] && mv $RL $WORK/rollouts_c$c.attempt$attempt.jsonl
   done
@@ -92,6 +102,6 @@ for ((c=${MS_START_CYCLE:-0}; c<CYCLES; c++)); do
   # HMMT25 -> probe.json (teacher preamble + wandb). Failure never stops training.
   if [ $(( (c + 1) % ${MS_PROBE_EVERY:-5} )) -eq 0 ]; then
     MS_EXP=$EXP bash $ROOT/scripts/probe_ckpt.sh $((c + 1)) \
-        2>&1 | tee -a $WORK/probe.log || echo "[probe] failed at cycle $((c+1)), continuing"
+        2>&1 | tee -a $LOGDIR/probe.log || echo "[probe] failed at cycle $((c+1)), continuing"
   fi
 done
