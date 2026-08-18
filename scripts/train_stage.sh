@@ -19,7 +19,6 @@ $PY -m verl.trainer.main_ppo \
     data.max_prompt_length=${MS_MAXPROMPT:-8192} \
     data.max_response_length=${MS_MAXRESP:-24000} \
     data.filter_overlong_prompts=True \
-    data.dataloader_num_workers=0 \
     reward_model.enable=False \
     actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=${MS_LR:-1e-6} \

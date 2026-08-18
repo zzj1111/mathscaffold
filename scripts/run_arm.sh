@@ -88,6 +88,16 @@ for ((c=${MS_START_CYCLE:-0}; c<CYCLES; c++)); do
     # rows of the dead attempt would double-count in the next prepare: archive them
     [ -f $RL ] && mv $RL $WORK/rollouts_c$c.attempt$attempt.jsonl
   done
+  # All 3 attempts exhausted without reaching STEP. Falling through here is what let a
+  # dead arm march from cycle 2 to cycle 6 on 2026-08-18: prepare_cycle.py kept running
+  # with zero outcomes, appending empty visit history and advancing ratio_state.json for
+  # every later cycle. Stop instead.
+  LAST=$(cat $MS_CKPTS/$EXP/latest_checkpointed_iteration.txt 2>/dev/null || echo 0)
+  if [ "$LAST" -lt "$STEP" ]; then
+    echo "[arm] FAILED at cycle $c: ckpt $LAST < target $STEP after 3 attempts; stopping" \
+        | tee -a $WORK/arm.log
+    exit 1
+  fi
   # hint-free probe every MS_PROBE_EVERY cycles (default 5 = 50 steps): AIME24/25,
   # HMMT25 -> probe.json (teacher preamble + wandb). Failure never stops training.
   if [ $(( (c + 1) % ${MS_PROBE_EVERY:-5} )) -eq 0 ]; then
