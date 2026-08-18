@@ -32,16 +32,30 @@ problems = D.load_problems(a.jsonl)
 state = C.load_state(a.state, problems)
 
 outcomes = {}
+inj_info = None
 if a.rollout_log and os.path.exists(a.rollout_log):
-    agg = collections.defaultdict(lambda: [0, 0])
+    agg = collections.defaultdict(lambda: [0, 0, False])
+    rows_inj = rows_tot = 0
     for line in open(a.rollout_log):
         try:
             r = json.loads(line)
         except ValueError:
             continue
-        agg[r["qid"]][0] += 1 if float(r.get("score") or 0) > 0 else 0
-        agg[r["qid"]][1] += 1
-    outcomes = {q: (s, n) for q, (s, n) in agg.items()}
+        e = agg[r["qid"]]
+        e[0] += 1 if float(r.get("score") or 0) > 0 else 0
+        e[1] += 1
+        e[2] = e[2] or bool(r.get("text_inj"))
+        rows_tot += 1
+        rows_inj += 1 if r.get("text_inj") else 0
+    outcomes = {q: (s, n) for q, (s, n, _) in agg.items()}
+    # injected-vs-bare group composition: the Teacher's content-vs-dose evidence,
+    # surfaced per cycle in wandb so scaffold usage is visible without reading logs
+    comp = {True: {"all_fail": 0, "mixed": 0, "all_pass": 0},
+            False: {"all_fail": 0, "mixed": 0, "all_pass": 0}}
+    for q, (sc, n, inj) in agg.items():
+        comp[inj]["all_fail" if sc == 0 else ("all_pass" if sc == n else "mixed")] += 1
+    inj_info = {"rows_injected": rows_inj, "rows_total": rows_tot,
+                "text": comp[True], "bare": comp[False]}
 
 if a.arm == "adaptive":
     state, notes = C.adaptive_update(state, outcomes, a.cycle)
@@ -102,7 +116,8 @@ try:
     from mathscaffold import wb
     wb.publish(os.path.dirname(a.state) or ".", a.arm, a.cycle, state, outcomes, notes,
                transcript_path=os.path.join(os.path.dirname(a.state) or ".",
-                                            "teacher_transcripts", f"c{a.cycle}.json"))
+                                            "teacher_transcripts", f"c{a.cycle}.json"),
+               inj_info=inj_info)
 except Exception as _e:
     print(f"[wandb] skipped: {_e}")
 
