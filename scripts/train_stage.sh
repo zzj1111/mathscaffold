@@ -10,6 +10,13 @@ MODEL=${MS_MODEL:?set MS_MODEL to the OpenMath-Nemotron-1.5B path}
 CKPTS=${MS_CKPTS:?set MS_CKPTS to the ckpt root}/$EXP
 PY=${MS_PYTHON:-python3}
 
+# ONE wandb run across all cycles: every per-cycle trainer process resumes the same
+# run id (default MS_EXP) instead of minting a new one — the curve stays contiguous.
+# Known cosmetic cost: a retry that re-walks already-logged steps has those points
+# dropped by wandb's monotonic-step rule; the local logs keep the truth.
+export WANDB_RUN_ID=${MS_WANDB_RUN_ID:-$EXP}
+export WANDB_RESUME=${WANDB_RESUME:-allow}
+
 $PY -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \

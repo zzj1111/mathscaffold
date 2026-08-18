@@ -7,7 +7,8 @@ import argparse, json
 from concurrent.futures import ThreadPoolExecutor
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--base-url", required=True)
+ap.add_argument("--base-url", required=True,
+                help="one URL, or comma-separated URLs (one vLLM per GPU) — problems are spread round-robin")
 ap.add_argument("--set", default="aime24",
                 choices=["aime24", "aime25", "hmmt25", "math500"])
 ap.add_argument("--sets", default=None,
@@ -25,20 +26,25 @@ SRC = {"aime24": ("HuggingFaceH4/aime_2024", "train", "problem", "answer"),
        "math500": ("HuggingFaceH4/MATH-500", "test", "problem", "answer")}
 
 import openai
-cli = openai.OpenAI(base_url=a.base_url, api_key="EMPTY", timeout=7200)
+clis = [openai.OpenAI(base_url=u.strip(), api_key="EMPTY", timeout=7200)
+        for u in a.base_url.split(",") if u.strip()]
 from math_verify import parse, verify
 
-def one(item, qk, ak):
+def one(idx_item, qk, ak):
+    # one API call with n completions (vLLM samples them in a single batch) on the
+    # client for this problem's slot — spreads load across the per-GPU servers
+    idx, item = idx_item
+    cli = clis[idx % len(clis)]
+    r = cli.chat.completions.create(
+        model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens, n=a.n,
+        messages=[{"role": "user", "content": item[qk] +
+                   "\n\nPlease reason step by step, and put your final answer within \\boxed{}."}])
     ok = 0
-    for _ in range(a.n):
-        r = cli.chat.completions.create(
-            model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens,
-            messages=[{"role": "user", "content": item[qk] +
-                       "\n\nPlease reason step by step, and put your final answer within \\boxed{}."}])
+    gold = parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None)
+    for ch in r.choices:
         try:
-            ok += 1 if verify(parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None),
-                              parse((r.choices[0].message.content or "")[-3000:],
-                                    parsing_timeout=None),
+            ok += 1 if verify(gold, parse((ch.message.content or "")[-3000:],
+                                          parsing_timeout=None),
                               timeout_seconds=None) else 0
         except Exception:
             pass
@@ -48,8 +54,8 @@ results = {}
 for name_ in (a.sets.split(",") if a.sets else [a.set]):
     name, split, qk, ak = SRC[name_]
     ds = load_dataset(name, split=split)
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        scores = list(ex.map(lambda it: one(it, qk, ak), ds))
+    with ThreadPoolExecutor(max_workers=4 * len(clis)) as ex:
+        scores = list(ex.map(lambda it: one(it, qk, ak), enumerate(ds)))
     results[name_] = round(sum(scores) / len(scores), 4)
     print(json.dumps({"set": name_, "n_problems": len(scores), "mean_pass1": results[name_]}), flush=True)
 if a.out:

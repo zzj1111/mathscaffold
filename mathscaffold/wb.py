@@ -12,7 +12,7 @@ import json
 import os
 
 
-def publish(work, arm, cycle, state, outcomes, notes, transcript_path=None):
+def publish(work, arm, cycle, state, outcomes, notes, transcript_path=None, inj_info=None):
     if os.environ.get("MS_WANDB", "0") != "1":
         return
     try:
@@ -42,6 +42,37 @@ def publish(work, arm, cycle, state, outcomes, notes, transcript_path=None):
             "text/p": float((text.get("p") or {}).get("general", 0)),
             "ctrl/n_changes": len(notes or []),
         }
+        # scaffold USAGE: realized injection fraction, injected-vs-bare group
+        # composition (the content-vs-dose evidence), dose histogram, and the
+        # current text items verbatim
+        if inj_info:
+            tot = max(1, inj_info["rows_total"])
+            payload["scaffold/frac_rows_injected"] = inj_info["rows_injected"] / tot
+            for side in ("text", "bare"):
+                c = inj_info[side]; n = max(1, sum(c.values()))
+                payload[f"scaffold/{side}_problems"] = sum(c.values())
+                payload[f"scaffold/all_fail_rate_{side}"] = c["all_fail"] / n
+            payload["scaffold/all_fail_rate_gap"] = (payload["scaffold/all_fail_rate_bare"]
+                                                     - payload["scaffold/all_fail_rate_text"])
+        if rs:
+            payload["ratio/hist"] = wandb.Histogram(rs)
+            cnt = {}
+            for r_ in rs:
+                cnt[int(round(r_))] = cnt.get(int(round(r_)), 0) + 1
+            for r_, n_ in sorted(cnt.items()):
+                if n_ >= 5:
+                    payload[f"ratio/n_at_{r_}"] = n_
+        try:
+            itbl = wandb.Table(columns=["scope", "id", "kind", "p_effective", "text"])
+            pmap = text.get("p") or {}
+            for sc, items in (text.get("items") or {}).items():
+                for it in items:
+                    itbl.add_data(sc, it.get("id"), it.get("kind"),
+                                  float(pmap.get(sc, pmap.get("general", 0)) or 0),
+                                  str(it.get("text") or "")[:800])
+            payload["scaffold/items"] = itbl
+        except Exception:
+            pass
         # probe results if present
         pf = os.path.join(work, "probe.json")
         if os.path.exists(pf):
