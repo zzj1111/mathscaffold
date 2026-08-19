@@ -6,7 +6,7 @@
 set -eu
 CYCLE=$1
 SETS=${MS_PROBE_SETS:-aime24,aime25,hmmt25}
-ROOT=${MS_ROOT:?}; WORK=${MS_WORK:?}; PY=${MS_PYTHON:-python3}
+ROOT=${MS_ROOT:?}; WORK=${MS_WORK:-$ROOT/runs/${MS_ARM:-teacher}}; PY=${MS_PYTHON:-python3}
 EXP=${MS_EXP:-questa_teacher}; CKPTS=${MS_CKPTS:?}/$EXP
 PORT=${MS_PROBE_PORT:-8123}
 STEP=$(cat $CKPTS/latest_checkpointed_iteration.txt)
