@@ -16,6 +16,11 @@ PY=${MS_PYTHON:-python3}
 # dropped by wandb's monotonic-step rule; the local logs keep the truth.
 export WANDB_RUN_ID=${MS_WANDB_RUN_ID:-$EXP}
 export WANDB_RESUME=${WANDB_RESUME:-allow}
+# trainer run follows the SAME entity/project as the arm runs unless explicitly set —
+# a relaunch shell that only exported MS_WANDB_* no longer strands the trainer run in
+# the api key's default entity (seen live on B200: curve "vanished" into rl_agent)
+export WANDB_ENTITY=${WANDB_ENTITY:-${MS_WANDB_ENTITY:-}}
+export WANDB_PROJECT=${WANDB_PROJECT:-${MS_WANDB_PROJECT:-mathscaffold}}
 
 $PY -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
