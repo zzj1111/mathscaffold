@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import os
 
-R0 = float(os.environ.get("MS_R0", "50"))
+R0 = float(os.environ.get("MS_R0", "25"))
 UP = float(os.environ.get("MS_UP", "15"))
 DOWN = float(os.environ.get("MS_DOWN", "15"))
 R_MAX = float(os.environ.get("MS_R_MAX", "50"))

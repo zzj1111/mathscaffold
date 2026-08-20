@@ -109,7 +109,9 @@ MS_START_CYCLE=<N> MS_SKIP_PREPARE=1 MS_EXP=questa_teacher_b200 bash scripts/lau
 
 ## QuestA 对齐的优化设置(300→500 延长段起用)
 论文口径(QuestA §5):AdamW 恒定 lr 2e-5;batch 128、mini-batch 1(=每 rollout 步 128 次
-梯度更新);无 KL;clip 0.2;temp 1.0;n=16;生成 24k。我们此前 lr 1e-6 / mini 32,对齐只需:
+梯度更新);无 KL;clip 0.2;temp 1.0;n=16;生成 24k。**现已是默认**(MS_LR=2e-5、
+MS_MINI_BS=1、初始剂量 MS_R0=25、上限 MS_R_MAX=50),从零起跑不需要额外变量;
+旧值可用环境变量回退(MS_LR=1e-6 MS_MINI_BS=32 MS_R0=50 MS_R_MAX=90)。续跑旧实验示例:
 ```bash
 # 先停当前臂(等周期边界最干净;若中途停,记当前周期 C 与 ckpt)
 cat $MS_CKPTS/questa_teacher/latest_checkpointed_iteration.txt   # 例:310 → 下一周期 C=31
