@@ -50,6 +50,7 @@ $PY -m verl.trainer.main_ppo \
     trainer.save_freq=${MS_SAVE_FREQ:-10} trainer.test_freq=-1 \
     trainer.val_before_train=False \
     trainer.total_training_steps=$STEP_TARGET \
+    trainer.total_epochs=${MS_TOTAL_EPOCHS:-10000} \
     trainer.default_local_dir=$CKPTS \
     trainer.logger="${MS_TRAINER_LOGGER:-['console','wandb']}" \
     trainer.project_name=${MS_WANDB_PROJECT:-mathscaffold} \
