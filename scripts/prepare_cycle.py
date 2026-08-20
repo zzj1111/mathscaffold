@@ -30,6 +30,15 @@ a = ap.parse_args()
 
 problems = D.load_problems(a.jsonl)
 state = C.load_state(a.state, problems)
+# hard dose cap (MS_R_MAX, default 50): also folds down any state carried from a
+# phase with a higher cap, so the cap is authoritative every cycle
+_capped = 0
+for _h in state.get("problems", {}).values():
+    if float(_h.get("r") or 0) > C.R_MAX:
+        _h["r"] = C.R_MAX
+        _capped += 1
+if _capped:
+    print(f"[ctrl] dose cap {C.R_MAX:g}: folded {_capped} problems down")
 
 outcomes = {}
 inj_info = None

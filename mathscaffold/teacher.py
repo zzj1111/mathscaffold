@@ -18,6 +18,7 @@ TEACHERFLOW_PATH = os.environ.get(
     os.path.join(os.path.expanduser("~"), "teacherflow"))
 MODEL = os.environ.get("MS_TEACHER_MODEL", "gpt-5.5")
 MAX_BUCKET_OPS, MAX_QID_OPS = 4, 16
+R_MAX = float(os.environ.get("MS_R_MAX", "50"))
 
 
 def _client():
@@ -59,20 +60,20 @@ def normalize(decision, state):
         if op.get("scope") == "bucket" and buckets < MAX_BUCKET_OPS:
             buckets += 1
             want = op.get("outcome")
-            lo, hi = float(op.get("r_min") or 0), float(op.get("r_max") or 90)
+            lo, hi = float(op.get("r_min") or 0), float(op.get("r_max") or R_MAX)
             delta = max(-20.0, min(20.0, float(op.get("delta") or 0)))
             for qid, h in probs.items():
                 if h.get("state") == "graduated" or h.get("_outcome") != want:
                     continue
                 if lo <= float(h.get("r") or 0) <= hi:
-                    sets[qid] = max(0.0, min(90.0, float(h["r"]) + delta))
+                    sets[qid] = max(0.0, min(R_MAX, float(h["r"]) + delta))
         elif op.get("scope") == "qid" and qids < MAX_QID_OPS:
             qids += 1
             qid = str(op.get("qid") or "")
             h = probs.get(qid)
             if h and h.get("state") != "graduated" and op.get("set") is not None:
                 try:
-                    sets[qid] = max(0.0, min(90.0, float(op["set"])))
+                    sets[qid] = max(0.0, min(R_MAX, float(op["set"])))
                 except (TypeError, ValueError):
                     pass
     return (list(sets.items()), list(decision.get("item_ops") or []),
@@ -113,9 +114,12 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
     preamble = (f"Cycle {cycle} just finished training. {probe_line}"
                 "Investigate as you see fit, then decide.")
     try:
+        rmax = str(int(R_MAX))
+        system = (MD.MATH_SYSTEM.replace("0..90", "0.." + rmax)
+                  .replace("[0, 90]", "[0, " + rmax + "]"))
         decision, transcript = investigate_and_propose(
             _client(), data, model=MODEL, user_preamble=preamble,
-            tools=MD, system=MD.MATH_SYSTEM)
+            tools=MD, system=system)
     except Exception as e:
         return None, f"teacher unreachable ({str(e)[:120]}) -> mechanical fallback", []
     # (note: returns (sets, item_ops, p_ops, note) via normalize on success)
