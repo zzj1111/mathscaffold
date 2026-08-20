@@ -16,6 +16,9 @@ ap.add_argument("--sets", default=None,
 ap.add_argument("--out", default=None, help="write {set: mean_pass1} JSON here")
 ap.add_argument("--cycle", type=int, default=None)
 ap.add_argument("--n", type=int, default=32)
+ap.add_argument("--instruction", choices=["probe", "official"], default="probe",
+                help="probe = 'Please reason step by step...' suffix (our training-arm protocol); "
+                     "official = the OpenMath-Nemotron model-card prefix (NeMo-Skills wording)")
 ap.add_argument("--max-tokens", type=int, default=30720)
 a = ap.parse_args()
 
@@ -37,8 +40,11 @@ def one(idx_item, qk, ak):
     cli = clis[idx % len(clis)]
     r = cli.chat.completions.create(
         model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens, n=a.n,
-        messages=[{"role": "user", "content": item[qk] +
-                   "\n\nPlease reason step by step, and put your final answer within \\boxed{}."}])
+        messages=[{"role": "user", "content":
+                   ("Solve the following math problem. Make sure to put the answer "
+                    "(and only answer) inside \\boxed{}.\n\n" + item[qk])
+                   if a.instruction == "official" else
+                   (item[qk] + "\n\nPlease reason step by step, and put your final answer within \\boxed{}.")}])
     ok = 0
     gold = parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None)
     for ch in r.choices:
