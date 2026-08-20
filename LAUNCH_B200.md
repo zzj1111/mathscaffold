@@ -106,6 +106,20 @@ MS_START_CYCLE=<N> MS_SKIP_PREPARE=1 MS_EXP=questa_teacher_b200 bash scripts/lau
 - `wandb is not logged in` → `wandb login`(或 `export WANDB_API_KEY=...`);不想传就 `export MS_WANDB=0 MS_TRAINER_LOGGER="['console']"`
 - `teacher arm needs OPENAI_API_KEY` → export 它
 
+
+## QuestA 对齐的优化设置(300→500 延长段起用)
+论文口径(QuestA §5):AdamW 恒定 lr 2e-5;batch 128、mini-batch 1(=每 rollout 步 128 次
+梯度更新);无 KL;clip 0.2;temp 1.0;n=16;生成 24k。我们此前 lr 1e-6 / mini 32,对齐只需:
+```bash
+# 先停当前臂(等周期边界最干净;若中途停,记当前周期 C 与 ckpt)
+cat $MS_CKPTS/questa_teacher/latest_checkpointed_iteration.txt   # 例:310 → 下一周期 C=31
+MS_LR=2e-5 MS_MINI_BS=1 MS_START_CYCLE=<C> bash scripts/launch.sh teacher 50
+# 周期中途死的场景加 MS_SKIP_PREPARE=1 并沿用该周期号
+```
+注意:①lr 提高 20 倍属换挡,前 1-2 个周期盯 score/熵是否失稳(探针每 50 步自动出);
+②mini=1 时每步 128 个 minibatch(各 16 条序列),8 卡 micro=2 恰好整除,无需改 micro;
+③曲线会呈两段(1e-6 段 / 2e-5 段),wandb 同 run 续写,分析时以 step 300 为界。
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,
