@@ -44,5 +44,7 @@ for i in "${!GARR[@]}"; do
   done
 done
 $PY $ROOT/scripts/eval_probe.py --base-url "$URLS" --sets $SETS \
-    --n ${MS_PROBE_N:-32} --out $WORK/probe.json --cycle $CYCLE 2>&1 | tee -a ${LOGDIR:-$WORK}/probe.log
+    --n ${MS_PROBE_N:-32} --max-tokens ${MS_PROBE_MAXTOK:-32768} \
+    --instruction ${MS_PROBE_INSTRUCTION:-official} \
+    --out $WORK/probe.json --cycle $CYCLE 2>&1 | tee -a ${LOGDIR:-$WORK}/probe.log
 echo "[probe] cycle $CYCLE step $STEP done -> $WORK/probe.json"
