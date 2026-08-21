@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 
 def load_problems(jsonl_paths):
@@ -48,16 +49,38 @@ def load_problems(jsonl_paths):
 
 BOX_INSTR = "Please reason step by step, and put your final answer within \\boxed{}."
 
+# MS_PROMPT_STYLE:
+#   paper (default) — QuestA paper App. B.8, "Training prompt with partial solutions":
+#       {Problem} ## Hint: {Partial Solution} Please reason step by step, and put your
+#       final answer within \\boxed{}.
+#     rendered as problem + "\n\n" + "## Hint." + prefix + "\n\n" + BOX_INSTR inside the
+#     model's chat template (user turn). "## Hint." (period, no space) is the literal from
+#     the released add_prefix.py; the paper's appendix prints "## Hint:". This is the
+#     format the 2026-08 v1 arms trained with.
+#   repo_raw — the released AReaL/datasets/add_prefix.py taken literally: no instruction,
+#     and train_stage.sh feeds the string as RAW TEXT (identity chat template). Kept only
+#     as a documented control: on OpenMath-Nemotron-1.5B it makes ~half the generations
+#     never stop (repetition loops) — see AUTOSCAFFOLD.md 2026-08-21.
+PROMPT_STYLE = os.environ.get("MS_PROMPT_STYLE", "paper")
 
-def hint_prompt(problem, solution, ratio):
-    """QuestA's splice (their Fig. 4): problem, optional '## Hint.' prefix of the
-    solution (first ratio% of characters; <10 chars = bare), then the boxed-answer
-    instruction."""
-    prefix = solution[: int(len(solution) * ratio / 100.0)]
+
+def split_prefix(solution, ratio):
+    """QuestA's split_prefix: the first ratio% of the solution by CHARACTERS, cut wherever
+    that lands (mid-sentence is normal)."""
+    return solution[: int(len(solution) * ratio / 100.0)]
+
+
+def hint_prompt(problem, solution, ratio, style=None):
+    style = style or PROMPT_STYLE
+    prefix = split_prefix(solution, ratio)
     body = problem + "\n\n"
     if len(prefix) >= 10:
-        body += "## Hint." + prefix + "\n\n"
-    return body + BOX_INSTR
+        body += "## Hint." + prefix
+    if style == "repo_raw":
+        return body
+    if style != "paper":
+        raise ValueError(f"unknown MS_PROMPT_STYLE {style!r} (paper|repo_raw)")
+    return body + ("\n\n" if len(prefix) >= 10 else "") + BOX_INSTR
 
 
 def build_rows(problems, state, served_qids=None, cycle=0):

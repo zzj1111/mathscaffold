@@ -22,7 +22,20 @@ export WANDB_RESUME=${WANDB_RESUME:-allow}
 export WANDB_ENTITY=${WANDB_ENTITY:-${MS_WANDB_ENTITY:-}}
 export WANDB_PROJECT=${WANDB_PROJECT:-${MS_WANDB_PROJECT:-mathscaffold}}
 
-$PY -m verl.trainer.main_ppo \
+# MS_PROMPT_STYLE=paper (default): the model's own chat template wraps the QuestA paper
+# prompt (problem + ## Hint. prefix + boxed instruction) — see mathscaffold/data.py.
+# MS_PROMPT_STYLE=repo_raw: the released add_prefix.py taken literally, fed as RAW TEXT via
+# an identity chat template (contents only, no role markers/system/generation prompt);
+# verl applies data.apply_chat_template_kwargs in both the dataset and the agent loop.
+# Control only — it degenerates on OpenMath-Nemotron-1.5B (half the rollouts never stop).
+RAW_TMPL='{% for m in messages %}{{ m.content }}{% endfor %}'
+if [ "${MS_PROMPT_STYLE:-paper}" = "repo_raw" ]; then
+  TMPL_ARGS=("++data.apply_chat_template_kwargs.chat_template='$RAW_TMPL'")
+else
+  TMPL_ARGS=()
+fi
+
+$PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=$PARQUET \
