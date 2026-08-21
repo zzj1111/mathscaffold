@@ -70,6 +70,8 @@ def one(idx_item, qk, ak):
     return ok / a.n
 
 ERRORS = []
+PER_PROBLEM = {}
+STDERR = {}
 results = {}
 for name_ in (a.sets.split(",") if a.sets else [a.set]):
     name, split, qk, ak = SRC[name_]
@@ -77,10 +79,19 @@ for name_ in (a.sets.split(",") if a.sets else [a.set]):
     with ThreadPoolExecutor(max_workers=4 * len(clis)) as ex:
         scores = list(ex.map(lambda it: one(it, qk, ak), enumerate(ds)))
     results[name_] = round(sum(scores) / len(scores), 4)
+    PER_PROBLEM[name_] = [round(x, 4) for x in scores]
+    # binomial standard error of the set mean under resampling with the same problems:
+    # sqrt(sum p_i(1-p_i)/n) / N — the noise floor to read any two probes against
+    se = (sum(x * (1 - x) for x in scores) / a.n) ** 0.5 / len(scores)
+    STDERR[name_] = round(se, 4)
     print(json.dumps({"set": name_, "n_problems": len(scores), "mean_pass1": results[name_],
-                      "request_failures": len(ERRORS)}), flush=True)
+                      "stderr": STDERR[name_], "request_failures": len(ERRORS)}), flush=True)
 if a.out:
     payload = dict(results)
+    payload["stderr"] = STDERR
+    payload["per_problem"] = PER_PROBLEM
+    payload["n"] = a.n
+    payload["request_failures"] = len(ERRORS)
     if a.cycle is not None:
         payload["cycle"] = a.cycle
     with open(a.out, "w") as f:

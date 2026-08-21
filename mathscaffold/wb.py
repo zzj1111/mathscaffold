@@ -79,8 +79,10 @@ def publish(work, arm, cycle, state, outcomes, notes, transcript_path=None, inj_
             try:
                 pr = json.load(open(pf))
                 for k, v in pr.items():
-                    if k != "cycle":
+                    if isinstance(v, (int, float)) and not isinstance(v, bool) and k != "cycle":
                         payload[f"probe/{k}"] = float(v)
+                for k, v in (pr.get("stderr") or {}).items():
+                    payload[f"probe/{k}_stderr"] = float(v)
             except (OSError, ValueError, TypeError):
                 pass
         # teacher decision as a table row

@@ -94,9 +94,15 @@ elif a.arm == "teacher":
     if os.path.exists(pf):
         try:
             pr = json.load(open(pf))
+            # set scores only — probe.json also carries stderr / per_problem / n /
+            # request_failures bookkeeping that must not be pasted into the prompt
+            sets = {k: v for k, v in pr.items()
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)
+                    and k not in ("cycle", "n", "request_failures")}
+            se = pr.get("stderr") or {}
             probe_line = ("Latest hint-free probes: "
-                          + ", ".join(f"{k} pass@1 {v}" for k, v in pr.items()
-                                      if k != "cycle")
+                          + ", ".join(f"{k} pass@1 {v}" + (f" (±{se[k]})" if k in se else "")
+                                      for k, v in sets.items())
                           + f" (measured at cycle {pr.get('cycle', '?')}). ")
         except (OSError, ValueError):
             pass
