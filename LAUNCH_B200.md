@@ -116,9 +116,9 @@ AReaL 的 `ppo_n_minibatches=1` = 整个 batch 作为**一个** minibatch → �
 (最保守的纯 on-policy 单步更新,这也是它能配 lr 2e-5 的前提)。verl 的
 `ppo_mini_batch_size=1` = minibatch 为 **1 道题** → 每步 **128 次**更新。按后者跑 30 步的
 实测:熵 0.53→0.09、24k 截断率 6%→43%、同剂量正确率 0.42→0.25(v1 同区间稳定在
-0.50–0.55)。**现默认 `MS_MINI_BS=32`**(每步 4 次更新,与 v1 相同),lr 2e-5,
+0.50–0.55)。**现默认 `MS_MINI_BS=128`**(= train batch → 每步 1 次更新,严格等于 QuestA 的 n_minibatches=1),lr 2e-5,
 **MS_R0=50**(起始剂量 = 上限,与 QuestA Partial_50 起点一致;teacher 只能按需下调)、MS_R_MAX=50;回退旧值用 MS_LR=1e-6 MS_MINI_BS=32 MS_R0=50 MS_R_MAX=90。
-完全照搬 QuestA 的单步更新则设 MS_MINI_BS=128。
+v1 的每步 4 次更新用 MS_MINI_BS=32。
 
 **训练 prompt 格式**:默认 `MS_PROMPT_STYLE=paper` = QuestA 论文附录 B.8 的模板(chat template 内:
 题干 + `## Hint.`前缀 + "Please reason step by step, and put your final answer within \boxed{}."),
