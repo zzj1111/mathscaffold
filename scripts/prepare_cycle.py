@@ -19,7 +19,9 @@ ap.add_argument("--state", default="ratio_state.json")
 ap.add_argument("--rollout-log", default=None)
 ap.add_argument("--arm", choices=["adaptive", "static", "teacher"], required=True)
 ap.add_argument("--cycle", type=int, required=True)
-ap.add_argument("--switch-cycle", type=int, default=10)
+# static arm (QuestA control): global R0 (50) until this cycle, then 25 — QuestA's
+# Partial_50 -> Partial_50_25 two-stage schedule; set MS_SWITCH_CYCLE to half the run
+ap.add_argument("--switch-cycle", type=int, default=int(os.environ.get("MS_SWITCH_CYCLE", "10")))
 # served slice MUST equal steps_per_cycle x train_batch (default 8 x 128): the
 # trainer consumes exactly that many prompts per cycle, and every served problem
 # must produce outcomes for the controller

@@ -134,6 +134,15 @@ MS_START_CYCLE=<C> bash scripts/launch.sh teacher 50
 注意:①lr 仍比 v1 高 20 倍,前 1-2 个周期盯 score/熵/截断率(探针每 50 步自动出);
 ②曲线会呈两段(1e-6 段 / 2e-5 段),wandb 同 run 续写,分析时以切换步为界。
 
+## 3b. 对照臂:QuestA 静态课程(第二个节点跑这个)
+`static` 臂 = QuestA 自己的两阶段课程:前半程全体 50% 提示,`MS_SWITCH_CYCLE` 起改为 25%,无 teacher、
+无文本 memo、无逐题剂量;优化器/prompt/探针与 teacher 臂完全相同。它同时是 QuestA 的复现和 teacher 的
+直接对照。与 teacher 臂的差别只在 `launch.sh` 的臂名和实验名:
+```bash
+export MS_EXP=questa_static_v3 MS_WORK=$MS_ROOT/runs/static_v3 MS_SWITCH_CYCLE=25   # 50 周期 → 第 25 周期切到 25%
+cd $MS_ROOT && bash scripts/launch.sh static 50
+```
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,
