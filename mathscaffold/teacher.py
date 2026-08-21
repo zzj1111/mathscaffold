@@ -127,7 +127,8 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
         try:
             os.makedirs(transcript_dir, exist_ok=True)
             with open(os.path.join(transcript_dir, f"c{cycle}.json"), "w") as f:
-                json.dump({"decision": decision, "transcript": transcript}, f,
+                json.dump({"decision": decision, "transcript": transcript,
+                           "preamble": preamble, "system_prompt_chars": len(system)}, f,
                           ensure_ascii=False, indent=1)
         except OSError:
             pass
