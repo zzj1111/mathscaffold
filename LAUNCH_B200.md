@@ -120,6 +120,11 @@ AReaL 的 `ppo_n_minibatches=1` = 整个 batch 作为**一个** minibatch → �
 **MS_R0=50**(起始剂量 = 上限,与 QuestA Partial_50 起点一致;teacher 只能按需下调)、MS_R_MAX=50;回退旧值用 MS_LR=1e-6 MS_MINI_BS=32 MS_R0=50 MS_R_MAX=90。
 完全照搬 QuestA 的单步更新则设 MS_MINI_BS=128。
 
+**训练 prompt 格式**:默认 `MS_PROMPT_STYLE=paper` = QuestA 论文附录 B.8 的模板(chat template 内:
+题干 + `## Hint.`前缀 + "Please reason step by step, and put your final answer within \boxed{}."),
+与 v1 逐字相同。`repo_raw`(公开仓库 add_prefix.py 字面 + 裸文本,不套模板)只作对照——实测让
+基座一半生成复读不停,不要用于正式训练。
+
 续跑旧实验示例:
 ```bash
 cat $MS_CKPTS/questa_teacher/latest_checkpointed_iteration.txt   # 例:310 → 下一周期 C=31
