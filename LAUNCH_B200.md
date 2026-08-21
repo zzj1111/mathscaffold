@@ -154,6 +154,26 @@ cd $MS_ROOT && bash scripts/launch.sh static 50
 **中途切换到此版本的 run**:轮转池从 8,843 变成 8,643,切换那一刻轮转会重洗一次(部分题提前/延后
 回访,无其他影响);held-out 的 200 题在切换前的周期里可能已被训过一次,分析时注明。
 
+## 3d. 探针服务池(2026-08-21 起两种探针共用 `scripts/vllm_pool.sh`)
+起服务前等训练把显存放干净(默认最多 10 分钟,超时打印占用进程)、端口动态分配(同池单调递增)、
+每个服务 `setsid` 独立进程组、结束时按进程组整体回收并等显存归零、服务起不来**立即失败并打印
+其日志尾部**(exit 3,run_arm 记一行 `[probe]/[bare] failed` 继续训练)。排查顺序:
+`runs/<arm>/logs/latest/bare/vllm_c<N>_g<G>.log`(裸探针)或 `runs/<arm>/probe_vllm_c<N>_g<G>.log`
+(官方探针)→ 看最后 25 行;常见:`ninja` 缺失(PATH 已自动加 env/bin)、显存未释放(看 `[pool] waiting`
+行与其后的占用进程表)、端口被占(自动跳过)。
+
+**正在跑的臂切到新代码**(run_arm.sh 是运行中的 bash,**不能原地 git pull 后指望它生效**,反而会错位):
+```bash
+# 1) 等周期边界(arm.log 刚出现 "[prepare] cycle N" 之前/之后都行),按会话号整体停臂
+SID=<run_arm.sh 的 pid>; kill -TERM $(ps -eo pid,sid | awk -v s=$SID '$2==s{print $1}'); sleep 30; nvidia-smi
+# 2) 更新代码
+cd $MS_ROOT && git pull && git log --oneline -1
+# 3) 从下一周期续跑(ckpt 与剂量状态自动接上;若周期中途被停则加 MS_SKIP_PREPARE=1 并沿用该周期号,
+#    并先 mv 掉该周期的半截 rollouts_c<N>.jsonl)
+cat $MS_CKPTS/$MS_EXP/latest_checkpointed_iteration.txt      # 例 30 → 下一周期 C=3
+MS_START_CYCLE=<C> bash scripts/launch.sh teacher 50           # static 臂同理换臂名
+```
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,

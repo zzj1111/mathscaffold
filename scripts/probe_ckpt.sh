@@ -24,29 +24,14 @@ if [ ! -f $HF/config.json ]; then
   done
 fi
 
-# one server per visible GPU (CUDA_VISIBLE_DEVICES, else all GPUs on the box)
-GPUS=${CUDA_VISIBLE_DEVICES:-$(nvidia-smi --query-gpu=index --format=csv,noheader | tr '\n' ',' | sed 's/,$//')}
-IFS=',' read -ra GARR <<< "$GPUS"
-VPIDS=(); URLS=""
-for i in "${!GARR[@]}"; do
-  P=$((PORT + i))
-  CUDA_VISIBLE_DEVICES=${GARR[$i]} $PY -m vllm.entrypoints.openai.api_server \
-      --model $HF --served-model-name actor \
-      --tensor-parallel-size 1 --gpu-memory-utilization 0.85 --max-model-len ${MS_PROBE_MAXLEN:-40960} \
-      --host 127.0.0.1 --port $P > $WORK/probe_vllm_c${CYCLE}_g${GARR[$i]}.log 2>&1 &
-  VPIDS+=($!)
-  URLS="$URLS,http://127.0.0.1:$P/v1"
-done
-URLS=${URLS#,}
-echo "[probe] cycle $CYCLE step $STEP: ${#GARR[@]} vLLM servers on GPUs $GPUS"
-stop_servers() { for p in "${VPIDS[@]}"; do kill $p 2>/dev/null || true; done; for p in "${VPIDS[@]}"; do wait $p 2>/dev/null || true; done; }
-trap stop_servers EXIT
-for i in "${!GARR[@]}"; do
-  P=$((PORT + i))
-  for t in $(seq 1 120); do
-    curl -sf http://127.0.0.1:$P/v1/models >/dev/null 2>&1 && break; sleep 10
-  done
-done
+# one single-GPU server per visible GPU via the shared pool (waits for the trainer to
+# release the GPUs, picks free ports, setsid per server, fails fast with log tails)
+source $ROOT/scripts/vllm_pool.sh
+LOGPREFIX=$WORK/probe_vllm_c${CYCLE} MAXLEN=${MS_PROBE_MAXLEN:-40960} UTIL=0.85
+ms_pool_start || { echo "[probe] FAIL: GPUs not free"; exit 3; }
+trap ms_pool_stop EXIT
+ms_pool_wait 1500 || { echo "[probe] FAIL: vLLM servers did not come up"; exit 3; }
+echo "[probe] cycle $CYCLE step $STEP: servers $URLS"
 $PY $ROOT/scripts/eval_probe.py --base-url "$URLS" --sets $SETS \
     --n ${MS_PROBE_N:-32} --max-tokens ${MS_PROBE_MAXTOK:-32768} \
     --instruction ${MS_PROBE_INSTRUCTION:-official} \

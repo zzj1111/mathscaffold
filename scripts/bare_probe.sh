@@ -17,7 +17,6 @@ ROOT=${MS_ROOT:?}; WORK=${MS_WORK:-$ROOT/runs/${MS_ARM:-teacher}}; PY=${MS_PYTHO
 EXP=${MS_EXP:-questa_teacher}; CKPTS=${MS_CKPTS:?}/$EXP
 PORT=${MS_BARE_PORT:-8143}
 N=${MS_BARE_N:-4}
-export PATH=$(dirname $(command -v $PY)):$PATH          # vLLM needs ninja from the env's bin
 STEP=$(cat $CKPTS/latest_checkpointed_iteration.txt)
 CK=$CKPTS/global_step_$STEP
 HF=$CK/hf
@@ -29,29 +28,13 @@ if [ ! -f $HF/config.json ]; then
   done
 fi
 
-GPUS=${CUDA_VISIBLE_DEVICES:-$(nvidia-smi --query-gpu=index --format=csv,noheader | tr '\n' ',' | sed 's/,$//')}
-IFS=',' read -ra GARR <<< "$GPUS"
-VPIDS=(); URLS=""
 LOGDIR=${LOGDIR:-$WORK/logs/latest}; mkdir -p $LOGDIR/bare
-for i in "${!GARR[@]}"; do
-  P=$((PORT + i))
-  CUDA_VISIBLE_DEVICES=${GARR[$i]} $PY -m vllm.entrypoints.openai.api_server \
-      --model $HF --served-model-name actor \
-      --tensor-parallel-size 1 --gpu-memory-utilization 0.85 --max-model-len ${MS_BARE_MAXLEN:-32768} \
-      --enable-prefix-caching --host 127.0.0.1 --port $P > $LOGDIR/bare/vllm_c${CYCLE}_g${GARR[$i]}.log 2>&1 &
-  VPIDS+=($!)
-  URLS="$URLS,http://127.0.0.1:$P/v1"
-done
-URLS=${URLS#,}
-echo "[bare] cycle $CYCLE step $STEP: ${#GARR[@]} vLLM servers on GPUs $GPUS, n=$N"
-stop_servers() { for p in "${VPIDS[@]}"; do kill $p 2>/dev/null || true; done; for p in "${VPIDS[@]}"; do wait $p 2>/dev/null || true; done; }
-trap stop_servers EXIT
-for i in "${!GARR[@]}"; do
-  P=$((PORT + i))
-  for t in $(seq 1 120); do
-    curl -sf http://127.0.0.1:$P/v1/models >/dev/null 2>&1 && break; sleep 10
-  done
-done
+source $ROOT/scripts/vllm_pool.sh
+LOGPREFIX=$LOGDIR/bare/vllm_c${CYCLE} MAXLEN=${MS_BARE_MAXLEN:-32768} UTIL=0.85
+ms_pool_start || { echo "[bare] FAIL: GPUs not free"; exit 3; }
+trap ms_pool_stop EXIT
+ms_pool_wait 1500 || { echo "[bare] FAIL: vLLM servers did not come up"; exit 3; }
+echo "[bare] cycle $CYCLE step $STEP: n=$N servers $URLS"
 
 SETS=$ROOT/mathscaffold/bare_probe_sets.json
 OUT=$LOGDIR/bare/c${CYCLE}
