@@ -256,6 +256,16 @@ last window's all-fail problems' fate this window (escaped vs still all-fail) â€
 unlocked escaped ones is your most direct evidence of the right dose. Use
 get_traces(all_fail_batch=true) to sweep the zero-gradient set quickly, then
 get_traces(qid) on the ones worth a full read.
+HINT-FREE READOUTS (in the user message when available): pass@1 WITHOUT any hint on
+200 held-out training-distribution problems (never trained on) and on 200 in-training
+problems, plus the held-out trend over recent cycles. These measure what the policy
+can do on its own; hinted group outcomes do not. Read them against the hinted
+success rate: if hinted success (fewer all-fail, more all-pass) keeps improving while
+the hint-free numbers stall or fall, the policy is learning to CONTINUE hints, not to
+solve â€” the cure is annealing (lower r on all-pass and long-standing mixed buckets,
+lower p), not more dose. Raise dose only where revisits show escapes AND the
+hint-free numbers are not deteriorating. A growing in-training minus held-out gap is
+memorization of served problems; it is not progress.
 
 INVESTIGATION: read-only tools over this cycle's rollouts, the ratio state and the
 text scaffold. The user message states your EXACT budgets; every result carries

@@ -108,6 +108,12 @@ for ((c=${MS_START_CYCLE:-0}; c<CYCLES; c++)); do
         | tee -a $WORK/arm.log
     exit 1
   fi
+  # per-cycle bare probe on the fixed held-out / in-training 200-problem sets (training
+  # distribution, no hints): the hint-dependence readout for the teacher. ~5-8 min.
+  if [ "${MS_BARE_PROBE:-1}" != "0" ] && [ $(( (c + 1) % ${MS_BARE_EVERY:-1} )) -eq 0 ]; then
+    MS_EXP=$EXP LOGDIR=$LOGDIR bash $ROOT/scripts/bare_probe.sh $((c + 1)) \
+        2>&1 | tee -a $LOGDIR/bare_probe.log || echo "[bare] failed at cycle $((c+1)), continuing"
+  fi
   # hint-free probe every MS_PROBE_EVERY cycles (default 5 = 50 steps): AIME24/25,
   # HMMT25 -> probe.json (teacher preamble + wandb). Failure never stops training.
   if [ $(( (c + 1) % ${MS_PROBE_EVERY:-5} )) -eq 0 ]; then

@@ -16,6 +16,7 @@ import collections
 import json
 import os
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -62,9 +63,11 @@ def wait_healthy(clis, procs, timeout=1800):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
-    ap.add_argument("--gpus", required=True, help="comma list; one vLLM server per GPU")
+    ap.add_argument("--gpus", default="", help="comma list; one vLLM server per GPU (omit with --base-url)")
+    ap.add_argument("--base-url", default="", help="comma list of running vLLM servers; no servers are spawned")
     ap.add_argument("--jsonl", default="/mnt/data1/zha00175/math_prep/questa_12k/OpenR1-50-0-4.jsonl")
     ap.add_argument("--n", type=int, default=8)
+    ap.add_argument("--ratio", type=float, default=0.0, help="hint ratio (solution-prefix %%); 0 = bare")
     ap.add_argument("--max-tokens", type=int, default=int(os.environ.get("MS_MAXRESP", "24000")))
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--port0", type=int, default=8300)
@@ -101,19 +104,29 @@ def main():
     # SIGTERM must run the finally: block below, or the vLLM servers (own sessions)
     # outlive us and hold the GPUs (seen live)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
-    procs, urls = start_servers(a.model_dir, gpus, a.port0, a.out)
+    if a.base_url:
+        procs, urls = [], [u.strip() for u in a.base_url.split(",") if u.strip()]
+    else:
+        if not gpus:
+            sys.exit("need --gpus (spawn servers) or --base-url (use running servers)")
+        procs, urls = start_servers(a.model_dir, gpus, a.port0, a.out)
     import openai
     clis = [openai.OpenAI(base_url=u, api_key="EMPTY", timeout=3600, max_retries=2) for u in urls]
     try:
-        wait_healthy(clis, procs)
-        print(f"{len(clis)} servers up on GPUs {gpus}", flush=True)
+        if procs:
+            wait_healthy(clis, procs)
+            print(f"{len(clis)} servers up on GPUs {gpus}", flush=True)
+        else:
+            for c in clis:
+                c.models.list()
+            print(f"using {len(clis)} running servers", flush=True)
         lock = __import__("threading").Lock()
         t0 = time.time()
         counter = {"done": 0}
 
         def one(ip):
             i, p = ip
-            prompt = D.hint_prompt(p["problem"], p["solution"], 0.0, style="paper")
+            prompt = D.hint_prompt(p["problem"], p["solution"], a.ratio, style="paper")
             cli = clis[i % len(clis)]
             r = None
             for attempt in range(4):
@@ -132,7 +145,7 @@ def main():
             scores, lens, fins = [], [], []
             for ch in r.choices:
                 txt = ch.message.content or ""
-                s = R.compute_score("questa_math", txt, gt, {"qid": p["qid"], "ratio": 0.0, "text_inj": False})
+                s = R.compute_score("questa_math", txt, gt, {"qid": p["qid"], "ratio": a.ratio, "text_inj": False})
                 s = float(s if not isinstance(s, dict) else s.get("score", 0))
                 scores.append(1 if s > 0 else 0)
                 lens.append(len(txt))
@@ -167,11 +180,14 @@ def main():
     hist = collections.Counter(r["pass"] for r in rows)
     n = rows[0]["n"] if rows else a.n
     summary = {
-        "model_dir": a.model_dir, "jsonl": a.jsonl, "n": n, "n_problems": len(rows),
+        "ratio": a.ratio, "model_dir": a.model_dir, "jsonl": a.jsonl, "n": n, "n_problems": len(rows),
         "mean_pass1": round(sum(r["pass"] for r in rows) / (n * len(rows)), 4),
         "solved_any": round(sum(r["pass"] > 0 for r in rows) / len(rows), 4),
         "solved_all": round(sum(r["pass"] == n for r in rows) / len(rows), 4),
         "pass_hist": {str(k): hist[k] for k in range(n + 1)},
+        # SE of the set mean treating per-problem pass rates as iid draws (between- plus
+        # within-problem spread; conservative for a fixed set, and well-defined at n=1)
+        "stderr": round((statistics.pvariance([r["pass"] / n for r in rows]) / len(rows)) ** 0.5, 4) if len(rows) > 1 else 0.0,
         "truncated_frac": round(sum(f == "length" for r in rows for f in r["finish"]) / (n * len(rows)), 4),
         "mean_chars": round(sum(sum(r["char_len"]) for r in rows) / (n * len(rows))),
     }

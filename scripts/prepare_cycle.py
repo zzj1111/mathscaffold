@@ -92,6 +92,25 @@ elif a.arm == "teacher":
         h["hist"] = (h.get("hist") or [])[-11:] + [
             {"cycle": a.cycle - 1, "r": h.get("r"), "succ": s_, "n": n_}]
     probe_line = ""
+    # per-cycle hint-free readouts (bare_probe.jsonl, one record per cycle): the
+    # hint-dependence signal — hinted success rising while these stall means the policy
+    # is learning to continue hints, not to solve
+    bp = os.path.join(os.path.dirname(a.state) or ".", "bare_probe.jsonl")
+    if os.path.exists(bp):
+        try:
+            recs = [json.loads(l) for l in open(bp) if l.strip()][-6:]
+            if recs:
+                last = recs[-1]
+                def _fmt(k):
+                    r_ = last.get(k) or {}
+                    return f"{r_.get('pass1', float('nan')):.3f} (±{r_.get('stderr', 0):.3f})"
+                trend = ", ".join(f"c{r_['cycle']}:{(r_.get('heldout') or {}).get('pass1', float('nan')):.2f}"
+                                  for r_ in recs)
+                probe_line += ("Hint-free pass@1 on 200 HELD-OUT training-distribution problems "
+                               f"(never trained on, n={last.get('n', '?')}): {_fmt('heldout')}; on 200 "
+                               f"IN-TRAINING problems: {_fmt('train')}; held-out trend by cycle: {trend}. ")
+        except (OSError, ValueError) as _e:
+            print(f"[prepare] bare_probe.jsonl unreadable: {_e}")
     pf = os.path.join(os.path.dirname(a.state) or ".", "probe.json")
     if os.path.exists(pf):
         try:
@@ -108,6 +127,8 @@ elif a.arm == "teacher":
                           + f" (measured at cycle {pr.get('cycle', '?')}). ")
         except (OSError, ValueError):
             pass
+    if probe_line:
+        print(f"[prepare] teacher readouts: {probe_line}")
     result, note, _ = T.decide(a.rollout_log or "", state, outcomes, a.cycle,
                                probe_line=probe_line, problems=problems,
                                transcript_dir=os.path.join(os.path.dirname(a.state) or ".",
@@ -138,7 +159,17 @@ try:
 except Exception as _e:
     print(f"[wandb] skipped: {_e}")
 
-qids = [p["qid"] for p in problems]
+# the per-cycle bare probe's held-out set never enters training (MS_BARE_PROBE=0 keeps
+# the old full-pool rotation). Note: the rotation is a shuffle of the served pool, so
+# switching this on mid-run reshuffles it once.
+heldout = set()
+if os.environ.get("MS_BARE_PROBE", "1") != "0":
+    _sets = os.path.join(os.path.dirname(__file__), "..", "mathscaffold", "bare_probe_sets.json")
+    try:
+        heldout = set(json.load(open(_sets))["heldout"])
+    except (OSError, ValueError, KeyError) as _e:
+        print(f"[prepare] WARNING: no held-out set ({_e}); serving the full pool")
+qids = [p["qid"] for p in problems if p["qid"] not in heldout]
 random.Random(20260814).shuffle(qids)
 lo = (a.cycle * a.served) % len(qids)
 served = set((qids + qids)[lo:lo + a.served])

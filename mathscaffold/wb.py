@@ -85,6 +85,19 @@ def publish(work, arm, cycle, state, outcomes, notes, transcript_path=None, inj_
                     payload[f"probe/{k}_stderr"] = float(v)
             except (OSError, ValueError, TypeError):
                 pass
+        # per-cycle bare (hint-free) probe on held-out / in-training 200-problem sets
+        bpf = os.path.join(work, "bare_probe.json")
+        if os.path.exists(bpf):
+            try:
+                bp = json.load(open(bpf))
+                for which in ("heldout", "train"):
+                    for k in ("pass1", "stderr", "solved_any", "truncated", "mean_chars"):
+                        if k in (bp.get(which) or {}):
+                            payload[f"bare/{which}_{k}"] = float(bp[which][k])
+                payload["bare/gap_train_minus_heldout"] = float(bp.get("gap_train_minus_heldout", 0))
+                payload["bare/step"] = float(bp.get("step", 0))
+            except (OSError, ValueError, TypeError):
+                pass
         # teacher decision as a table row
         if transcript_path and os.path.exists(transcript_path):
             try:

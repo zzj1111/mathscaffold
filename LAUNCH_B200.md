@@ -143,6 +143,17 @@ export MS_EXP=questa_static_v3 MS_WORK=$MS_ROOT/runs/static_v3 MS_SWITCH_CYCLE=2
 cd $MS_ROOT && bash scripts/launch.sh static 50
 ```
 
+## 3c. 每周期裸探针(hint-free,训练分布内;默认开)
+每个 cycle 训练结束后自动跑 `scripts/bare_probe.sh`:固定的 200 道 **held-out** 题(从训练轮转里永久
+剔除)+ 200 道**训练内**题,r=0 无提示、训练采样条件、每题 `MS_BARE_N`(默认 4)条、训练 reward 判分。
+8 卡约 5–8 分钟。结果:`$MS_WORK/bare_probe.jsonl`(逐周期)/ `bare_probe.json`(最新),进 teacher
+开场白(含 held-out 趋势)和 wandb(`bare/heldout_pass1`、`bare/train_pass1`、`bare/gap_train_minus_heldout`)。
+用途:带提示的 score 在涨而裸分不涨 = 模型在学"续写提示"而非解题,teacher 据此退火而不是加剂量;
+训练内 − held-out 的差 = 记忆成分。题目集在 `mathscaffold/bare_probe_sets.json`(qid 为题面哈希,两台机
+同一份)。关闭:`MS_BARE_PROBE=0`;间隔:`MS_BARE_EVERY=N`。
+**中途切换到此版本的 run**:轮转池从 8,843 变成 8,643,切换那一刻轮转会重洗一次(部分题提前/延后
+回访,无其他影响);held-out 的 200 题在切换前的周期里可能已被训过一次,分析时注明。
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,
