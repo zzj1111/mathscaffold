@@ -9,6 +9,10 @@ SETS=${MS_PROBE_SETS:-aime24,aime25,hmmt25}
 ROOT=${MS_ROOT:?}; WORK=${MS_WORK:-$ROOT/runs/${MS_ARM:-teacher}}; PY=${MS_PYTHON:-python3}
 EXP=${MS_EXP:-questa_teacher}; CKPTS=${MS_CKPTS:?}/$EXP
 PORT=${MS_PROBE_PORT:-8123}
+# vLLM compiles kernels with ninja from the python env's bin; the scripts call $PY by path
+# without activating the env, so put that bin dir on PATH (seen live: all 4 servers died
+# with FileNotFoundError: 'ninja' and the probe timed out)
+export PATH=$(dirname $(command -v $PY)):$PATH
 STEP=$(cat $CKPTS/latest_checkpointed_iteration.txt)
 CK=$CKPTS/global_step_$STEP
 HF=$CK/hf
@@ -28,7 +32,7 @@ for i in "${!GARR[@]}"; do
   P=$((PORT + i))
   CUDA_VISIBLE_DEVICES=${GARR[$i]} $PY -m vllm.entrypoints.openai.api_server \
       --model $HF --served-model-name actor \
-      --tensor-parallel-size 1 --gpu-memory-utilization 0.85 --max-model-len 32768 \
+      --tensor-parallel-size 1 --gpu-memory-utilization 0.85 --max-model-len ${MS_PROBE_MAXLEN:-40960} \
       --host 127.0.0.1 --port $P > $WORK/probe_vllm_c${CYCLE}_g${GARR[$i]}.log 2>&1 &
   VPIDS+=($!)
   URLS="$URLS,http://127.0.0.1:$P/v1"

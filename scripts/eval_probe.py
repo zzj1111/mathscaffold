@@ -38,13 +38,26 @@ def one(idx_item, qk, ak):
     # client for this problem's slot — spreads load across the per-GPU servers
     idx, item = idx_item
     cli = clis[idx % len(clis)]
-    r = cli.chat.completions.create(
-        model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens, n=a.n,
-        messages=[{"role": "user", "content":
-                   ("Solve the following math problem. Make sure to put the answer "
-                    "(and only answer) inside \\boxed{}.\n\n" + item[qk])
-                   if a.instruction == "official" else
-                   (item[qk] + "\n\nPlease reason step by step, and put your final answer within \\boxed{}.")}])
+    content = (("Solve the following math problem. Make sure to put the answer "
+                "(and only answer) inside \\boxed{}.\n\n" + item[qk])
+               if a.instruction == "official" else
+               (item[qk] + "\n\nPlease reason step by step, and put your final answer within \\boxed{}."))
+    # a transient server error on one problem must not abort the whole probe: retry,
+    # then score the problem 0 and count it (reported at the end; a nonzero count
+    # means the numbers are a lower bound, not a clean measurement)
+    r = None
+    for attempt in range(4):
+        try:
+            r = cli.chat.completions.create(
+                model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens, n=a.n,
+                messages=[{"role": "user", "content": content}])
+            break
+        except Exception as e:          # noqa: BLE001
+            print(f"[probe] request error on problem {idx} (attempt {attempt + 1}): {e!r}"[:300], flush=True)
+            time.sleep(15)
+    if r is None:
+        ERRORS.append(idx)
+        return 0.0
     ok = 0
     gold = parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None)
     for ch in r.choices:
@@ -56,6 +69,7 @@ def one(idx_item, qk, ak):
             pass
     return ok / a.n
 
+ERRORS = []
 results = {}
 for name_ in (a.sets.split(",") if a.sets else [a.set]):
     name, split, qk, ak = SRC[name_]
@@ -63,7 +77,8 @@ for name_ in (a.sets.split(",") if a.sets else [a.set]):
     with ThreadPoolExecutor(max_workers=4 * len(clis)) as ex:
         scores = list(ex.map(lambda it: one(it, qk, ak), enumerate(ds)))
     results[name_] = round(sum(scores) / len(scores), 4)
-    print(json.dumps({"set": name_, "n_problems": len(scores), "mean_pass1": results[name_]}), flush=True)
+    print(json.dumps({"set": name_, "n_problems": len(scores), "mean_pass1": results[name_],
+                      "request_failures": len(ERRORS)}), flush=True)
 if a.out:
     payload = dict(results)
     if a.cycle is not None:
