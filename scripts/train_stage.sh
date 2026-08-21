@@ -34,7 +34,7 @@ $PY -m verl.trainer.main_ppo \
     reward_model.enable=False \
     actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=${MS_LR:-2e-5} \
-    actor_rollout_ref.actor.ppo_mini_batch_size=${MS_MINI_BS:-1} \
+    actor_rollout_ref.actor.ppo_mini_batch_size=${MS_MINI_BS:-32} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MS_MICRO_BS:-2} \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${MS_LOGP_BS:-4} \

@@ -91,6 +91,7 @@ def main():
     ap.add_argument("--stdout-log", required=True, help="the nohup log (runs/<exp>.log)")
     ap.add_argument("--arm-pid", type=int, required=True)
     ap.add_argument("--ckpts", required=True)
+    ap.add_argument("--arm-log", default=None, help="arm.log path (default <work>/arm.log)")
     ap.add_argument("--interval", type=int, default=120)
     ap.add_argument("--max-lines", type=int, default=200, help="lines echoed per tick")
     a = ap.parse_args()
@@ -101,13 +102,14 @@ def main():
                      settings=wandb.Settings(init_timeout=60, _disable_stats=True,
                                              console="wrap"))
     print(f"[watch] started for pid {a.arm_pid}, work={a.work}", flush=True)
+    arm_log = a.arm_log or os.path.join(a.work, "arm.log")
     pos_out = pos_arm = 0
     errors = 0
     grace = 2                       # extra ticks after the arm dies (final flush)
     while True:
         try:
             alive = _alive(a.arm_pid)
-            for path, tag, key in ((a.stdout_log, "stdout", "pos_out"), (os.path.join(a.work, "arm.log"), "arm", "pos_arm")):
+            for path, tag, key in ((a.stdout_log, "stdout", "pos_out"), (arm_log, "arm", "pos_arm")):
                 text, newpos = _tail_new(path, pos_out if key == "pos_out" else pos_arm)
                 if key == "pos_out":
                     pos_out = newpos
@@ -129,7 +131,7 @@ def main():
                     run.log({"status/last_error": tbl, "status/errors": errors}, commit=False)
             cyc = None
             try:
-                for ln in open(os.path.join(a.work, "arm.log"), errors="replace"):
+                for ln in open(arm_log, errors="replace"):
                     m = re.search(r"\[prepare\] cycle (\d+)|\[resume\] cycle (\d+)", ln)
                     if m:
                         cyc = int(m.group(1) or m.group(2))

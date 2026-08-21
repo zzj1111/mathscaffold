@@ -107,20 +107,27 @@ MS_START_CYCLE=<N> MS_SKIP_PREPARE=1 MS_EXP=questa_teacher_b200 bash scripts/lau
 - `teacher arm needs OPENAI_API_KEY` → export 它
 
 
-## QuestA 对齐的优化设置(300→500 延长段起用)
-论文口径(QuestA §5):AdamW 恒定 lr 2e-5;batch 128、mini-batch 1(=每 rollout 步 128 次
-梯度更新);无 KL;clip 0.2;temp 1.0;n=16;生成 24k。**现已是默认**(MS_LR=2e-5、
-MS_MINI_BS=1、初始剂量 MS_R0=25、上限 MS_R_MAX=50),从零起跑不需要额外变量;
-旧值可用环境变量回退(MS_LR=1e-6 MS_MINI_BS=32 MS_R0=50 MS_R_MAX=90)。续跑旧实验示例:
+## QuestA 对齐的优化设置(现为默认)
+论文口径(QuestA §5 / AReaL yaml):AdamW 恒定 lr 2e-5;batch 128;`ppo_n_minibatches=1`;
+无 KL;clip 0.2;temp 1.0;n=16;生成 24k。
+
+**minibatch 语义,两框架相反,已踩坑(2026-08-21 本地 step150 续训):**
+AReaL 的 `ppo_n_minibatches=1` = 整个 batch 作为**一个** minibatch → 每步 **1 次**优化器更新
+(最保守的纯 on-policy 单步更新,这也是它能配 lr 2e-5 的前提)。verl 的
+`ppo_mini_batch_size=1` = minibatch 为 **1 道题** → 每步 **128 次**更新。按后者跑 30 步的
+实测:熵 0.53→0.09、24k 截断率 6%→43%、同剂量正确率 0.42→0.25(v1 同区间稳定在
+0.50–0.55)。**现默认 `MS_MINI_BS=32`**(每步 4 次更新,与 v1 相同),lr 2e-5、
+MS_R0=25、MS_R_MAX=50 不变;回退旧值用 MS_LR=1e-6 MS_MINI_BS=32 MS_R0=50 MS_R_MAX=90。
+完全照搬 QuestA 的单步更新则设 MS_MINI_BS=128。
+
+续跑旧实验示例:
 ```bash
-# 先停当前臂(等周期边界最干净;若中途停,记当前周期 C 与 ckpt)
 cat $MS_CKPTS/questa_teacher/latest_checkpointed_iteration.txt   # 例:310 → 下一周期 C=31
-MS_LR=2e-5 MS_MINI_BS=1 MS_START_CYCLE=<C> bash scripts/launch.sh teacher 50
+MS_START_CYCLE=<C> bash scripts/launch.sh teacher 50
 # 周期中途死的场景加 MS_SKIP_PREPARE=1 并沿用该周期号
 ```
-注意:①lr 提高 20 倍属换挡,前 1-2 个周期盯 score/熵是否失稳(探针每 50 步自动出);
-②mini=1 时每步 128 个 minibatch(各 16 条序列),8 卡 micro=2 恰好整除,无需改 micro;
-③曲线会呈两段(1e-6 段 / 2e-5 段),wandb 同 run 续写,分析时以 step 300 为界。
+注意:①lr 仍比 v1 高 20 倍,前 1-2 个周期盯 score/熵/截断率(探针每 50 步自动出);
+②曲线会呈两段(1e-6 段 / 2e-5 段),wandb 同 run 续写,分析时以切换步为界。
 
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
