@@ -111,6 +111,13 @@ MS_START_CYCLE=<N> MS_SKIP_PREPARE=1 MS_EXP=questa_teacher_b200 bash scripts/lau
 论文口径(QuestA §5 / AReaL yaml):AdamW 恒定 lr 2e-5;batch 128;`ppo_n_minibatches=1`;
 无 KL;clip 0.2;temp 1.0;n=16;生成上限 **32768**(2026-08-22 起默认;24k 是 v1–v3 前期的值,v3 两臂在 24k 上限下 step 60–90 长度坍缩)。
 
+**优化器已按 QuestA 的 AReaL yaml(`AReaL/scripts/partial_50_grpo.yaml`)对齐(2026-08-22)**:AdamW lr 2e-5 恒定、
+**betas (0.9, 0.95)**、**weight_decay 0.05**、grad clip 1.0(`MS_BETA2` / `MS_WD` 可改)。verl 默认 β2=0.999 /
+wd 0.01;β2=0.999 对梯度范数突增的反应比 0.95 慢约 50 倍,是 v3 两臂 step 60–90 长度坍缩的首要嫌疑
+(grad_norm 0.02→0.5–5 几步内完成)。QuestA 另有两处我们没有的稳定机制:异步 decoupled PPO(落后 ≤4 版,
+`behav_imp_weight_cap 5`,clip 真实起作用)与动态采样(成功率在 [0.05, 0.95] 之外的题不进 batch)。
+论文 §5 的 "mini-batch size of 1 = 128 gradient updates" 与其 yaml 的 `ppo_n_minibatches: 1`(整批一次更新)矛盾,以 yaml 为准。
+
 **minibatch 语义,两框架相反,已踩坑(2026-08-21 本地 step150 续训):**
 AReaL 的 `ppo_n_minibatches=1` = 整个 batch 作为**一个** minibatch → 每步 **1 次**优化器更新
 (最保守的纯 on-policy 单步更新,这也是它能配 lr 2e-5 的前提)。verl 的
