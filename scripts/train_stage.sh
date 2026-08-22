@@ -42,7 +42,7 @@ $PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" \
     data.val_files=$PARQUET \
     data.train_batch_size=${MS_BS:-128} \
     data.max_prompt_length=${MS_MAXPROMPT:-8192} \
-    data.max_response_length=${MS_MAXRESP:-24000} \
+    data.max_response_length=${MS_MAXRESP:-32768} \
     data.filter_overlong_prompts=True \
     reward_model.enable=False \
     actor_rollout_ref.model.path=$MODEL \

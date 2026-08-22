@@ -109,7 +109,7 @@ MS_START_CYCLE=<N> MS_SKIP_PREPARE=1 MS_EXP=questa_teacher_b200 bash scripts/lau
 
 ## QuestA 对齐的优化设置(现为默认)
 论文口径(QuestA §5 / AReaL yaml):AdamW 恒定 lr 2e-5;batch 128;`ppo_n_minibatches=1`;
-无 KL;clip 0.2;temp 1.0;n=16;生成 24k。
+无 KL;clip 0.2;temp 1.0;n=16;生成上限 **32768**(2026-08-22 起默认;24k 是 v1–v3 前期的值,v3 两臂在 24k 上限下 step 60–90 长度坍缩)。
 
 **minibatch 语义,两框架相反,已踩坑(2026-08-21 本地 step150 续训):**
 AReaL 的 `ppo_n_minibatches=1` = 整个 batch 作为**一个** minibatch → 每步 **1 次**优化器更新

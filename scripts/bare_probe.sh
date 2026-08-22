@@ -30,7 +30,8 @@ fi
 
 LOGDIR=${LOGDIR:-$WORK/logs/latest}; mkdir -p $LOGDIR/bare
 source $ROOT/scripts/vllm_pool.sh
-LOGPREFIX=$LOGDIR/bare/vllm_c${CYCLE} MAXLEN=${MS_BARE_MAXLEN:-32768} UTIL=0.85
+# server context must hold prompt (<=8192) + the training response cap
+LOGPREFIX=$LOGDIR/bare/vllm_c${CYCLE} MAXLEN=${MS_BARE_MAXLEN:-$(( ${MS_MAXRESP:-32768} + 8192 ))} UTIL=0.85
 ms_pool_start || { echo "[bare] FAIL: GPUs not free"; exit 3; }
 trap ms_pool_stop EXIT
 ms_pool_wait 1500 || { echo "[bare] FAIL: vLLM servers did not come up"; exit 3; }

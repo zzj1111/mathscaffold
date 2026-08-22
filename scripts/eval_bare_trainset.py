@@ -27,7 +27,7 @@ from mathscaffold import data as D  # noqa: E402
 from mathscaffold import reward as R  # noqa: E402
 
 
-def start_servers(model_dir, gpus, port0, log_prefix):
+def start_servers(model_dir, gpus, port0, log_prefix, max_model_len=40960):
     procs, urls = [], []
     env = dict(os.environ)
     env["PATH"] = os.path.dirname(sys.executable) + ":" + env.get("PATH", "")
@@ -37,7 +37,7 @@ def start_servers(model_dir, gpus, port0, log_prefix):
         p = subprocess.Popen(
             [sys.executable, "-m", "vllm.entrypoints.openai.api_server", "--model", model_dir,
              "--served-model-name", "actor", "--tensor-parallel-size", "1",
-             "--gpu-memory-utilization", "0.85", "--max-model-len", "32768",
+             "--gpu-memory-utilization", "0.85", "--max-model-len", str(max_model_len),
              "--enable-prefix-caching", "--host", "127.0.0.1", "--port", str(port)],
             env=e, stdout=open(f"{log_prefix}.vllm_g{g}.log", "w"), stderr=subprocess.STDOUT,
             start_new_session=True)
@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--jsonl", default="/mnt/data1/zha00175/math_prep/questa_12k/OpenR1-50-0-4.jsonl")
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--ratio", type=float, default=0.0, help="hint ratio (solution-prefix %%); 0 = bare")
-    ap.add_argument("--max-tokens", type=int, default=int(os.environ.get("MS_MAXRESP", "24000")))
+    ap.add_argument("--max-tokens", type=int, default=int(os.environ.get("MS_MAXRESP", "32768")))
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--port0", type=int, default=8300)
     ap.add_argument("--limit", type=int, default=0, help="first N problems (file order)")
@@ -109,7 +109,7 @@ def main():
     else:
         if not gpus:
             sys.exit("need --gpus (spawn servers) or --base-url (use running servers)")
-        procs, urls = start_servers(a.model_dir, gpus, a.port0, a.out)
+        procs, urls = start_servers(a.model_dir, gpus, a.port0, a.out, max_model_len=max(40960, a.max_tokens + 8192))
     import openai
     clis = [openai.OpenAI(base_url=u, api_key="EMPTY", timeout=3600, max_retries=2) for u in urls]
     try:
