@@ -22,10 +22,6 @@ export WANDB_RESUME=${WANDB_RESUME:-allow}
 export WANDB_ENTITY=${WANDB_ENTITY:-${MS_WANDB_ENTITY:-}}
 export WANDB_PROJECT=${WANDB_PROJECT:-${MS_WANDB_PROJECT:-mathscaffold}}
 
-# Optimizer matches QuestA's AReaL yaml (scripts/partial_50_grpo.yaml): AdamW lr 2e-5 constant,
-# betas (0.9, 0.95), weight_decay 0.05, grad clip 1.0. verl's defaults were betas (0.9, 0.999) /
-# wd 0.01 — beta2 0.999 reacts to a gradient-norm spike ~50x slower than 0.95, which is the
-# leading suspect for the step-60-90 length collapse (grad_norm 0.02 -> 0.5-5 within a few steps).
 # MS_PROMPT_STYLE=paper (default): the model's own chat template wraps the QuestA paper
 # prompt (problem + ## Hint. prefix + boxed instruction) — see mathscaffold/data.py.
 # MS_PROMPT_STYLE=repo_raw: the released add_prefix.py taken literally, fed as RAW TEXT via
@@ -51,8 +47,6 @@ $PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" \
     reward_model.enable=False \
     actor_rollout_ref.model.path=$MODEL \
     actor_rollout_ref.actor.optim.lr=${MS_LR:-2e-5} \
-    "actor_rollout_ref.actor.optim.betas=[0.9,${MS_BETA2:-0.95}]" \
-    actor_rollout_ref.actor.optim.weight_decay=${MS_WD:-0.05} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${MS_MINI_BS:-128} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MS_MICRO_BS:-2} \
     actor_rollout_ref.actor.use_kl_loss=False \
