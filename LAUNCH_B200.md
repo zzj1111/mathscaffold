@@ -174,6 +174,18 @@ cat $MS_CKPTS/$MS_EXP/latest_checkpointed_iteration.txt      # 例 30 → 下一
 MS_START_CYCLE=<C> bash scripts/launch.sh teacher 50           # static 臂同理换臂名
 ```
 
+## 3e. 回滚到某个周期(不接受后续 teacher 决策)
+prepare 每周期会存 `ratio_state_c<N>.json` 快照(2026-08-22 起)。更早的 run 没有快照时用回放:
+```bash
+cd $MS_ROOT && mv runs/<arm>/ratio_state.json runs/<arm>/ratio_state.pre_rollback.json
+$MS_PYTHON scripts/replay_state.py --work runs/<arm> --upto <N> --out runs/<arm>/ratio_state.json
+# 用 rollouts_c0..c{N-1} + teacher_transcripts/c0..c{N} 确定性重放 prepare 的状态转移(本地验证与真实状态逐字节一致);
+# 同时把 teacher 的 history.json 截到 <= N(旧的留 .pre_replay)
+```
+之后挪走 `global_step_>N*10` 的 ckpt、把 `latest_checkpointed_iteration.txt` 写成 N*10、归档 `rollouts_c{N}..`、
+`train_c{N+1}..`,用 `MS_START_CYCLE=N MS_SKIP_PREPARE=1`(复用 train_c{N}.parquet)续跑;换 `MS_WANDB_RUN_ID`
+以免 wandb 丢点。
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,

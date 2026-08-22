@@ -176,4 +176,11 @@ served = set((qids + qids)[lo:lo + a.served])
 rows = D.build_rows(problems, state, served, cycle=a.cycle)
 D.write_parquet(rows, a.out)
 C.save_state(state, a.state)
+# per-cycle snapshot of the state that produced this cycle's parquet: rolling an arm
+# back to cycle N is then `cp ratio_state_cN.json ratio_state.json` (no replay needed)
+try:
+    import shutil
+    shutil.copyfile(a.state, os.path.join(os.path.dirname(a.state) or ".", f"ratio_state_c{a.cycle}.json"))
+except OSError as _e:
+    print(f"[prepare] snapshot skipped: {_e}")
 print(f"[prepare] cycle {a.cycle}: {len(rows)} rows -> {a.out}")
