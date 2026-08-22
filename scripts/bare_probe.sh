@@ -45,7 +45,7 @@ import json, sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]]))
 EOF
   $PY $ROOT/scripts/eval_bare_trainset.py --model-dir $HF --base-url "$URLS" \
       --jsonl "${MS_DATA:?}" --qids $OUT.$which.qids.json --n $N --ratio 0 \
-      --max-tokens ${MS_MAXRESP:-24000} --out $OUT.$which 2>&1 | tail -n 3
+      --max-tokens ${MS_MAXRESP:-32768} --out $OUT.$which 2>&1 | tail -n 3
 done
 
 $PY - "$WORK" "$CYCLE" "$STEP" "$N" "$OUT" <<'EOF'
