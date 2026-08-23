@@ -208,6 +208,31 @@ cd $MS_ROOT && setsid nohup $MS_PYTHON scripts/wandb_watch.py --work $MS_WORK --
 that is less than the current step 79`),曲线到超过旧最高步才续上;`train_c<N>.log` 是全的,死掉那次
 的 rollouts 归档为 `rollouts_c<N>.attempt<k>.jsonl`。
 
+## 3g. 从某一步换学习率续训(优化器重建,周期号/步数/剂量状态都接上)
+verl 续训会连优化器和 lr 调度器一起恢复,**旧 lr 会被原样带回来**(`MS_LR` 改了也没用)。
+`train_stage.sh` 现在自动识别:最近 ckpt 的 `actor/` 里没有 `optim_*`/`extra_state_*` 分片 → 只加载
+模型权重,按当前 `MS_LR` 新建优化器与调度器,global step 仍取目录名;之后各段的 ckpt 都带优化器,
+照常完整恢复。本地 4 卡冒烟验证:`actor/lr` 从 2e-5 变为 5e-06、step 从 N 继续。做法(以 teacher
+臂、从 step 70、lr 5e-6 为例;static 臂把 teacher/teacher_v3 换成 static/static_v3,其余一样):
+```bash
+# 0) 按会话号整体停臂(run_arm.sh 的 pid 在 $MS_WORK/logs/<arm>_<tag>.pid),等显存归零
+SID=$(cat $(ls -t $MS_WORK/logs/*.pid | head -1)); kill -TERM $(ps -eo pid,sid | awk -v s=$SID '$2==s{print $1}'); sleep 60; nvidia-smi
+cd $MS_ROOT && git pull && git log --oneline -1
+# 1) 新实验名 + 新 wandb run id(旧 run 的单调 step 规则会丢点),其余 MS_* 不变;MS_WORK 沿用(剂量状态/teacher 记忆/裸探针记录接上)
+export MS_EXP=questa_teacher_v3c MS_WANDB_RUN_ID=questa_teacher_v3c MS_LR=5e-6
+# 2) 用旧 ckpt 的模型分片播种新实验目录(不拷 optim_*/extra_state_*;硬链接不占空间)
+OLD=$MS_CKPTS/questa_teacher_v3/global_step_70; NEW=$MS_CKPTS/$MS_EXP/global_step_70
+mkdir -p $NEW/actor && cp -l $OLD/actor/model_world_size_*.pt $NEW/actor/ 2>/dev/null || cp $OLD/actor/model_world_size_*.pt $NEW/actor/
+cp -r $OLD/actor/huggingface $OLD/actor/fsdp_config.json $NEW/actor/ && cp $OLD/data.pt $NEW/
+echo 70 > $MS_CKPTS/$MS_EXP/latest_checkpointed_iteration.txt
+ls $NEW/actor    # 应只有 model_world_size_8_rank_*.pt + huggingface/ + fsdp_config.json
+# 3) 该周期的半截 rollouts 挪开(否则下次 prepare 重复计数),从该周期续跑、复用已准备好的 parquet
+mv $MS_WORK/rollouts_c7.jsonl $MS_WORK/rollouts_c7.attempt_lr2e5.jsonl 2>/dev/null || true
+MS_START_CYCLE=7 MS_SKIP_PREPARE=1 bash scripts/launch.sh teacher 50
+# 4) 验证:train_c7.log 头部有 "[stage] ckpt global_step_70 has no optimizer shards",第一行 step 指标里
+#    actor/lr:np.float64(5e-06);wandb 新 run questa_teacher_v3c 从 step 71 起画
+```
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,

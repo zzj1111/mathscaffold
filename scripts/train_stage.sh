@@ -35,7 +35,20 @@ else
   TMPL_ARGS=()
 fi
 
-$PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" \
+# Restart with a NEW optimizer (e.g. a changed lr): seed $CKPTS/global_step_<N>/actor with the
+# model shards only (no optim_*/extra_state_* files) and latest_checkpointed_iteration.txt=N.
+# verl then loads the weights, keeps global step N (folder name) and builds a fresh optimizer
+# + lr scheduler from this config. Loading the saved optimizer/extra instead would silently
+# restore the OLD lr (Optimizer/LambdaLR.load_state_dict carry param_groups/base_lrs).
+# Auto-detected per stage, so every later stage (whose ckpts have optimizer shards) resumes fully.
+LOAD_ARGS=()
+LATEST=$(cat $CKPTS/latest_checkpointed_iteration.txt 2>/dev/null || echo 0)
+if [ "$LATEST" -gt 0 ] && ! ls $CKPTS/global_step_$LATEST/actor/optim_world_size_* >/dev/null 2>&1; then
+  LOAD_ARGS=("actor_rollout_ref.actor.checkpoint.load_contents=['model']")
+  echo "[stage] ckpt global_step_$LATEST has no optimizer shards: loading model only -> fresh optimizer at lr ${MS_LR:-2e-5}"
+fi
+
+$PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=$PARQUET \
