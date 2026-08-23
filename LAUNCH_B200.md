@@ -186,6 +186,28 @@ $MS_PYTHON scripts/replay_state.py --work runs/<arm> --upto <N> --out runs/<arm>
 `train_c{N+1}..`,用 `MS_START_CYCLE=N MS_SKIP_PREPARE=1`(复用 train_c{N}.parquet)续跑;换 `MS_WANDB_RUN_ID`
 以免 wandb 丢点。
 
+## 3f. 训练段看门狗(`scripts/stage_watchdog.sh`,2026-08-23 修正)
+`run_arm.sh` 每个训练段旁边跑一个看门狗:`train_c<N>.log` 超过 `STALL_MIN` 分钟没变化就杀掉本段、
+从最近 ckpt 重试(最多 3 次,然后本臂停止)。verl 只在每步结束才写日志,32K 一步(含段末存 ckpt)
+实测 25–37 分钟,旧默认 30 分钟在 2026-08-23 01:2x/01:4xZ 把两臂健康的 79/80、72/73 段误杀,各重走
+了一遍 70→80。现默认:`MS_MAXRESP>=32768` → 90 分钟,否则 45;`MS_STALL_MIN` 可覆盖。同时不再误杀
+`wandb_watch.py`(它的环境里也有 `MS_EXP`,旧版把它一起杀了 → `<exp>_watch` 面板停更)。
+
+看门狗脚本每次重试都从磁盘重新启动,`git pull` 后**下一段**自动生效,当前正在跑的段仍是旧阈值;
+要保住当前段(不重启)可以临时让日志保持"新鲜"直到本段结束(只改 mtime,不改内容):
+```bash
+nohup bash -c 'for i in $(seq 60); do touch $MS_WORK/logs/latest/train_c*.log; sleep 300; done' >/dev/null 2>&1 &
+```
+被误杀的 watcher 手动拉起(`--arm-pid` 填 run_arm.sh 的 pid,见 `$MS_WORK/logs/<arm>_<tag>.pid`):
+```bash
+cd $MS_ROOT && setsid nohup $MS_PYTHON scripts/wandb_watch.py --work $MS_WORK --exp $MS_EXP \
+  --stdout-log $(ls -t $MS_WORK/logs/*.stdout.log | head -1) --arm-log $MS_WORK/logs/latest/arm.log \
+  --arm-pid $(cat $(ls -t $MS_WORK/logs/*.pid | head -1)) --ckpts $MS_CKPTS >> $MS_WORK/logs/latest/watch.log 2>&1 < /dev/null &
+```
+重试会沿用同一个 wandb run id:重走的 step 被 wandb 的单调 step 规则丢掉(`Tried to log to step 73
+that is less than the current step 79`),曲线到超过旧最高步才续上;`train_c<N>.log` 是全的,死掉那次
+的 rollouts 归档为 `rollouts_c<N>.attempt<k>.jsonl`。
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,
