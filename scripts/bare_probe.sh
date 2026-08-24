@@ -37,7 +37,7 @@ trap ms_pool_stop EXIT
 ms_pool_wait 1500 || { echo "[bare] FAIL: vLLM servers did not come up"; exit 3; }
 echo "[bare] cycle $CYCLE step $STEP: n=$N servers $URLS"
 
-SETS=$ROOT/mathscaffold/bare_probe_sets.json
+SETS=${MS_BARE_SETS:-$ROOT/mathscaffold/bare_probe_sets.json}
 OUT=$LOGDIR/bare/c${CYCLE}
 for which in heldout train; do
   $PY - "$SETS" "$which" > $OUT.$which.qids.json <<'EOF'

@@ -34,6 +34,7 @@ ms_pool_wait 1500 || { echo "[probe] FAIL: vLLM servers did not come up"; exit 3
 echo "[probe] cycle $CYCLE step $STEP: servers $URLS"
 $PY $ROOT/scripts/eval_probe.py --base-url "$URLS" --sets $SETS \
     --n ${MS_PROBE_N:-32} --max-tokens ${MS_PROBE_MAXTOK:-32768} \
+    --temperature ${MS_PROBE_TEMP:-0.7} --top-p ${MS_PROBE_TOPP:-0.95} \
     --instruction ${MS_PROBE_INSTRUCTION:-official} \
     --out $WORK/probe.json --cycle $CYCLE 2>&1 | tee -a ${LOGDIR:-$WORK}/probe.log
 echo "[probe] cycle $CYCLE step $STEP done -> $WORK/probe.json"

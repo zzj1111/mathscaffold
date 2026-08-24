@@ -164,7 +164,7 @@ except Exception as _e:
 # switching this on mid-run reshuffles it once.
 heldout = set()
 if os.environ.get("MS_BARE_PROBE", "1") != "0":
-    _sets = os.path.join(os.path.dirname(__file__), "..", "mathscaffold", "bare_probe_sets.json")
+    _sets = os.environ.get("MS_BARE_SETS") or os.path.join(os.path.dirname(__file__), "..", "mathscaffold", "bare_probe_sets.json")
     try:
         heldout = set(json.load(open(_sets))["heldout"])
     except (OSError, ValueError, KeyError) as _e:

@@ -10,7 +10,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--base-url", required=True,
                 help="one URL, or comma-separated URLs (one vLLM per GPU) — problems are spread round-robin")
 ap.add_argument("--set", default="aime24",
-                choices=["aime24", "aime25", "hmmt25", "math500"])
+                choices=["aime24", "aime25", "hmmt25", "math500", "amc23"])
 ap.add_argument("--sets", default=None,
                 help="comma list to run several in one server session, e.g. aime24,aime25,hmmt25")
 ap.add_argument("--out", default=None, help="write {set: mean_pass1} JSON here")
@@ -20,13 +20,16 @@ ap.add_argument("--instruction", choices=["probe", "official"], default="probe",
                 help="probe = 'Please reason step by step...' suffix (our training-arm protocol); "
                      "official = the OpenMath-Nemotron model-card prefix (NeMo-Skills wording)")
 ap.add_argument("--max-tokens", type=int, default=30720)
+ap.add_argument("--temperature", type=float, default=0.7)
+ap.add_argument("--top-p", type=float, default=0.95)
 a = ap.parse_args()
 
 from datasets import load_dataset
 SRC = {"aime24": ("HuggingFaceH4/aime_2024", "train", "problem", "answer"),
        "aime25": ("MathArena/aime_2025", "train", "problem", "answer"),
        "hmmt25": ("MathArena/hmmt_feb_2025", "train", "problem", "answer"),
-       "math500": ("HuggingFaceH4/MATH-500", "test", "problem", "answer")}
+       "math500": ("HuggingFaceH4/MATH-500", "test", "problem", "answer"),
+       "amc23": ("math-ai/amc23", "test", "question", "answer")}
 
 import openai
 clis = [openai.OpenAI(base_url=u.strip(), api_key="EMPTY", timeout=7200)
@@ -49,7 +52,7 @@ def one(idx_item, qk, ak):
     for attempt in range(4):
         try:
             r = cli.chat.completions.create(
-                model="actor", temperature=0.7, top_p=0.95, max_tokens=a.max_tokens, n=a.n,
+                model="actor", temperature=a.temperature, top_p=a.top_p, max_tokens=a.max_tokens, n=a.n,
                 messages=[{"role": "user", "content": content}])
             break
         except Exception as e:          # noqa: BLE001

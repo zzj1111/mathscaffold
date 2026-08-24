@@ -271,6 +271,27 @@ bash scripts/launch_b200_v4.sh static       # 节点 2 → 同上 static_v4;MS_S
 `reward_model.reward_kwargs.overlong_buffer_cfg.*`(agent-loop 的 reward loop 走同名 DAPO manager,
 自定义 reward 照常被调用;`rollouts_c*.jsonl` 记的仍是未罚的 0/1,teacher 的统计不受影响)。
 
+## 3i. SAGE-bench:在 SAGE(arXiv 2602.03143)的数据/模型上跑我们的 auto-scaffold
+一键脚本 `scripts/launch_sagebench.sh`(交给跑实验的人即可):Qwen3-4B-Instruct-2507 +
+OpenR1-Math-220k 过滤 15k(带 R1 轨迹,前缀 hint 可用),GRPO 设置对齐 SAGE 的 run 脚本:
+lr 1e-6、batch 128×n4、mini 64(每步 2 次更新)、clip 0.2/0.28、KL 0、响应 8K、500 步;
+hint 机制 = 我们的 teacher 原样(前缀剂量 R0=50 + 文本 scaffold/skills)。SAGE 自报(6 个
+benchmark 均值):GRPO +2.9 / SAGE +4.2(Qwen3-4B)。
+```bash
+cd <repo> && git pull
+export MS_PYTHON=/path/to/env/bin/python WANDB_API_KEY=... OPENAI_API_KEY=...
+huggingface-cli download Qwen/Qwen3-4B-Instruct-2507 --local-dir models/Qwen3-4B-Instruct-2507
+$MS_PYTHON scripts/prepare_sage_data.py --model models/Qwen3-4B-Instruct-2507 \
+    --out data/sage15k/openr1_sage15k.jsonl     # 94k → Math-Verify 通过 + 轨迹<8192 token → 抽 15k;同时生成裸探针题集
+bash scripts/launch_sagebench.sh teacher 50     # wandb: sagebench_teacher_qwen3_4b{,_arm,_watch}
+```
+官方探针改为 SAGE 协议:aime24/aime25/math500/amc23,temp 0.6 / top-p 0.95 / 8K,每 5 周期;
+裸探针用该数据集自己的 200+200 题集(`MS_BARE_SETS`,prepare 脚本已生成并打印路径)。与论文数字
+对照是近似的(15k 抽样与其不完全一致、我们评 4 个集合、n=32 而非其单次生成);同机自跑一条
+无 hint GRPO 基线(`MS_R0=0 MS_TEACHER=off` 另开臂)才是干净对照,需要时再加。
+注意:数据行里 answer 需字面出现在 R1 轨迹 </think> 之后的部分(加载器规则),prepare 会打印
+因此被丢的行数;prompt 模板沿用我们的 QuestA paper 版(这属于我们方法的一部分)。
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,
