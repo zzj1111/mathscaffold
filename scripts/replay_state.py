@@ -83,6 +83,9 @@ def main():
             state, notes2 = C.adaptive_update(state, outcomes, c)
             print(f"[replay] cycle {c}: no decision -> mechanical fallback ({len(notes2)} notes)")
         else:
+            for h in probs.values():
+                h.pop("_outcome", None)
+                h.pop("_succ_frac", None)
             for qid, (succ, n) in outcomes.items():
                 if qid in probs:
                     probs[qid]["_outcome"] = ("all_fail" if succ == 0 else ("all_pass" if succ == n else "mixed"))

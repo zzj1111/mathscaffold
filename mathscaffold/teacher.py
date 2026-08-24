@@ -125,6 +125,13 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
     from teacherflow.workflow import investigate_and_propose
 
     probs = state.get("problems", state)
+    # window annotations are per-cycle SCRATCH: they persist in the saved state, so
+    # stale ones from earlier cycles must be wiped or bucket/where ops accumulate
+    # across windows (seen live on v4: one "mixed -5" op hit 4174 problems, 3x the
+    # window, parking thousands at r=45 without evidence at their own revisit)
+    for h in probs.values():
+        h.pop("_outcome", None)
+        h.pop("_succ_frac", None)
     for qid, (succ, n) in outcomes.items():
         if qid in probs:
             probs[qid]["_outcome"] = ("all_fail" if succ == 0 else
