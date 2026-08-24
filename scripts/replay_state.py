@@ -86,6 +86,7 @@ def main():
             for qid, (succ, n) in outcomes.items():
                 if qid in probs:
                     probs[qid]["_outcome"] = ("all_fail" if succ == 0 else ("all_pass" if succ == n else "mixed"))
+                    probs[qid]["_succ_frac"] = round(succ / n, 3) if n else None
             sets, item_ops, p_ops, note = T.normalize(decision, state)
             for qid, new_r in sets:
                 probs[qid]["r"] = new_r

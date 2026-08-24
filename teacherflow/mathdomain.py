@@ -46,6 +46,8 @@ TOOL_SPECS = [
         "parameters": {"type": "object", "properties": {
             "outcome": {"type": "string", "enum": ["all_fail", "mixed", "all_pass"]},
             "r_min": {"type": "number"}, "r_max": {"type": "number"},
+            "succ_min": {"type": "number", "minimum": 0, "maximum": 1},
+            "succ_max": {"type": "number", "minimum": 0, "maximum": 1},
             "n": {"type": "integer", "minimum": 1, "maximum": 40},
             "offset": {"type": "integer", "minimum": 0}},
             "required": ["outcome"]}}},
@@ -169,6 +171,11 @@ def dispatch(data, name, args):
             succ = sum(1 for x in g if float(x.get("score") or 0) > 0)
             kind = "all_fail" if succ == 0 else ("all_pass" if succ == len(g) else "mixed")
             r = float((probs.get(qid) or {}).get("r", g[0].get("ratio") or 0))
+            frac = succ / len(g) if g else 0.0
+            if args.get("succ_min") is not None and frac < float(args["succ_min"]):
+                continue
+            if args.get("succ_max") is not None and frac > float(args["succ_max"]):
+                continue
             if kind == want and rmin <= r <= rmax:
                 hist = ((probs.get(qid) or {}).get("hist") or [])[-3:]
                 out.append({"qid": qid, "r": r, "succ": succ, "n": len(g),
@@ -248,7 +255,8 @@ success without it, so your standing policy on mixed groups is a SLOW WEAN: a mi
 group with success rate ABOVE 50% gets a small dose cut (-5..-10) right away, at this
 very visit — no need to wait for it to prove stable; a mixed group at or below 50%
 holds its dose until it has stayed mixed across revisits, then starts the same slow
-cuts. If a wean tips a problem to all-fail, step back up once and hold longer before
+cuts. One where-op covers the whole tier: {"scope": "where", "where": {"outcome":
+"mixed", "succ_min": 0.51}, "delta": -5}. If a wean tips a problem to all-fail, step back up once and hold longer before
 retrying. All-pass groups are
 already learned at that dose — anneal them faster. The one place RL cannot move on
 its own is the all-fail group:
@@ -282,6 +290,10 @@ text scaffold. The user message states your EXACT budgets; every result carries
 Return, as your FINAL message (no tool call), ONLY this JSON:
 {"diagnosis": "<your reasoning>",
  "ratio_ops": [
+   {"scope": "where", "where": {"outcome": "all_fail"|"all_pass"|"mixed" (optional),
+     "r_min": <0..90>, "r_max": <0..90>, "succ_min": <0..1>, "succ_max": <0..1>
+     (all filters optional, AND-ed; succ_* = this window's success fraction)},
+    "delta": <-20..20>}  — or "set": <0..90> instead of delta |
    {"scope": "bucket", "outcome": "all_fail"|"all_pass"|"mixed",
     "r_min": <0..90>, "r_max": <0..90>, "delta": <-20..20>} |
    {"scope": "qid", "qid": "...", "set": <0..90>}],
@@ -293,7 +305,9 @@ Return, as your FINAL message (no tool call), ONLY this JSON:
 Empty ops means no intervention this cycle.
 
 HARD CONSTRAINTS (violations are clamped or the op family is voided, never fatal):
-- ratio: at most 4 bucket ops and 16 qid ops; delta clamped to +-20; r in [0, 90];
+- ratio: at most 6 where ops, 4 bucket ops and 16 qid ops; delta clamped to +-20;
+  r in [0, 90]; ops apply IN ORDER and compose (a later op sees earlier ops' result);
+  where/bucket ops only ever touch THIS WINDOW's problems;
 - text: at most 3 add/update ops per cycle (deletes free); skill/plan <= 500 chars,
   example <= 1500; no duplicates; ONE global p in [0, 0.5];
 - graduation bookkeeping is mechanical (bare success graduates; bare failure after

@@ -17,7 +17,7 @@ TEACHERFLOW_PATH = os.environ.get(
     _REPO if os.path.isdir(os.path.join(_REPO, "teacherflow")) else
     os.path.join(os.path.expanduser("~"), "teacherflow"))
 MODEL = os.environ.get("MS_TEACHER_MODEL", "gpt-5.5")
-MAX_BUCKET_OPS, MAX_QID_OPS = 4, 16
+MAX_BUCKET_OPS, MAX_QID_OPS, MAX_WHERE_OPS = 4, 16, 6
 R_MAX = float(os.environ.get("MS_R_MAX", "50"))
 
 
@@ -53,7 +53,7 @@ def normalize(decision, state):
         return [], [], [], "non-dict -> no-op"
     probs = state.get("problems", state)
     sets = {}
-    buckets = qids = 0
+    buckets = qids = wheres = 0
     for op in decision.get("ratio_ops") or []:
         if not isinstance(op, dict):
             continue
@@ -65,8 +65,38 @@ def normalize(decision, state):
             for qid, h in probs.items():
                 if h.get("state") == "graduated" or h.get("_outcome") != want:
                     continue
-                if lo <= float(h.get("r") or 0) <= hi:
-                    sets[qid] = max(0.0, min(R_MAX, float(h["r"]) + delta))
+                cur = float(sets.get(qid, h.get("r") or 0))
+                if lo <= cur <= hi:
+                    sets[qid] = max(0.0, min(R_MAX, cur + delta))
+        elif op.get("scope") == "where" and wheres < MAX_WHERE_OPS:
+            # SQL-style bulk op over THIS WINDOW's problems: filter by outcome and/or
+            # r range and/or this window's success fraction, then delta or set.
+            wheres += 1
+            w = op.get("where") or {}
+            delta = op.get("delta")
+            rset = op.get("set")
+            if delta is None and rset is None:
+                continue
+            lo, hi = float(w.get("r_min") or 0), float(w.get("r_max") or R_MAX)
+            for qid, h in probs.items():
+                if h.get("state") == "graduated" or h.get("_outcome") is None:
+                    continue
+                if w.get("outcome") and h.get("_outcome") != w["outcome"]:
+                    continue
+                cur = float(sets.get(qid, h.get("r") or 0))
+                if not (lo <= cur <= hi):
+                    continue
+                sf = h.get("_succ_frac")
+                if w.get("succ_min") is not None and (sf is None or sf < float(w["succ_min"])):
+                    continue
+                if w.get("succ_max") is not None and (sf is None or sf > float(w["succ_max"])):
+                    continue
+                try:
+                    new_r = (float(rset) if rset is not None
+                             else cur + max(-20.0, min(20.0, float(delta))))
+                except (TypeError, ValueError):
+                    break
+                sets[qid] = max(0.0, min(R_MAX, new_r))
         elif op.get("scope") == "qid" and qids < MAX_QID_OPS:
             qids += 1
             qid = str(op.get("qid") or "")
@@ -78,7 +108,7 @@ def normalize(decision, state):
                     pass
     return (list(sets.items()), list(decision.get("item_ops") or []),
             list(decision.get("p_ops") or []),
-            f"ok ({buckets} bucket, {qids} qid ops -> {len(sets)} problems; "
+            f"ok ({wheres} where, {buckets} bucket, {qids} qid ops -> {len(sets)} problems; "
             f"{len(decision.get('item_ops') or [])} item, {len(decision.get('p_ops') or [])} p)")
 
 
@@ -99,6 +129,7 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
         if qid in probs:
             probs[qid]["_outcome"] = ("all_fail" if succ == 0 else
                                       ("all_pass" if succ == n else "mixed"))
+            probs[qid]["_succ_frac"] = round(succ / n, 3) if n else None
     data = RunData(rollout_log, scaffold_path=None, state_path=None)
     data.scaffold = state
     data.problems = {p["qid"]: p for p in (problems or [])}
