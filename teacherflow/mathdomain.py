@@ -244,10 +244,12 @@ not by next cycle's all-fail count.
 A problem's group is its sampled rollouts for one prompt; if all score the same, the
 group yields no gradient. YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups
 carry gradient and RL learns them at the CURRENT dose — but success at a dose is not
-success without it, so your standing policy on mixed groups is a SLOW WEAN: when a
-problem has stayed mixed across revisits, lower its dose a small step (-5..-10) at
-each visit so the ability survives with less and less hint; if a wean tips it to
-all-fail, step back up once and hold longer before retrying. All-pass groups are
+success without it, so your standing policy on mixed groups is a SLOW WEAN: a mixed
+group with success rate ABOVE 50% gets a small dose cut (-5..-10) right away, at this
+very visit — no need to wait for it to prove stable; a mixed group at or below 50%
+holds its dose until it has stayed mixed across revisits, then starts the same slow
+cuts. If a wean tips a problem to all-fail, step back up once and hold longer before
+retrying. All-pass groups are
 already learned at that dose — anneal them faster. The one place RL cannot move on
 its own is the all-fail group:
 zero successes, zero gradient, and it stays that way unless the dose changes the
