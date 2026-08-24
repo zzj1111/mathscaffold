@@ -80,7 +80,8 @@ $PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" "${OVERLONG_ARG
     actor_rollout_ref.actor.optim.lr=${MS_LR:-2e-5} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${MS_MINI_BS:-128} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MS_MICRO_BS:-2} \
-    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.use_kl_loss=$([ -n "${MS_KL:-}" ] && echo True || echo False) \
+    ${MS_KL:+actor_rollout_ref.actor.kl_loss_coef=$MS_KL} \
     ${MS_CLIP_LOW:+actor_rollout_ref.actor.clip_ratio_low=$MS_CLIP_LOW} \
     ${MS_CLIP_HIGH:+actor_rollout_ref.actor.clip_ratio_high=$MS_CLIP_HIGH} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${MS_LOGP_BS:-4} \
