@@ -243,8 +243,13 @@ not by next cycle's all-fail count.
 
 A problem's group is its sampled rollouts for one prompt; if all score the same, the
 group yields no gradient. YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups
-already carry gradient — plain RL learns those by itself. All-pass groups are already
-learned at that dose. The one place RL cannot move on its own is the all-fail group:
+carry gradient and RL learns them at the CURRENT dose — but success at a dose is not
+success without it, so your standing policy on mixed groups is a SLOW WEAN: when a
+problem has stayed mixed across revisits, lower its dose a small step (-5..-10) at
+each visit so the ability survives with less and less hint; if a wean tips it to
+all-fail, step back up once and hold longer before retrying. All-pass groups are
+already learned at that dose — anneal them faster. The one place RL cannot move on
+its own is the all-fail group:
 zero successes, zero gradient, and it stays that way unless the dose changes the
 sampling. Judge every intervention by whether it can turn all-fail groups into groups
 with at least one success (that is when gradient appears): raise the hint ratio on
@@ -263,7 +268,8 @@ can do on its own; hinted group outcomes do not. Read them against the hinted
 success rate: if hinted success (fewer all-fail, more all-pass) keeps improving while
 the hint-free numbers stall or fall, the policy is learning to CONTINUE hints, not to
 solve — the cure is annealing (lower r on all-pass and long-standing mixed buckets,
-lower p), not more dose. Raise dose only where revisits show escapes AND the
+lower p), not more dose — the slow mixed-group wean above is the default even when the
+hint-free numbers look fine; deteriorating hint-free numbers make it urgent. Raise dose only where revisits show escapes AND the
 hint-free numbers are not deteriorating. A growing in-training minus held-out gap is
 memorization of served problems; it is not progress.
 
