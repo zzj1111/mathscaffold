@@ -15,7 +15,7 @@
 #
 # Everything else is derived below; edit the "site" block if your paths differ.
 set -eu
-ARM=${1:?usage: launch_b200_v4.sh teacher|static [n_cycles]}; CYCLES=${2:-50}
+ARM=${1:?usage: launch_b200_v5.sh teacher|static [n_cycles]}; CYCLES=${2:-50}
 case $ARM in teacher|static) ;; *) echo "arm must be teacher or static"; exit 2;; esac
 
 # ---- site (B200 pod) ---------------------------------------------------------------
@@ -31,7 +31,7 @@ export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
 [ "$ARM" = teacher ] && : "${OPENAI_API_KEY:?teacher arm needs OPENAI_API_KEY}"
 
 # ---- experiment (v4) ---------------------------------------------------------------
-export MS_EXP=questa_${ARM}_v5 MS_WORK=$MS_ROOT/runs/${ARM}_v5 MS_WANDB_RUN_ID=questa_${ARM}_v4
+export MS_EXP=questa_${ARM}_v5 MS_WORK=$MS_ROOT/runs/${ARM}_v5 MS_WANDB_RUN_ID=questa_${ARM}_v5
 export MS_LR=2e-5            # QuestA's lr; the KL anchor below is the departure
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
