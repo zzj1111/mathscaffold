@@ -229,6 +229,25 @@ ls $NEW/actor    # 应只有 model_world_size_8_rank_*.pt + huggingface/ + fsdp_
 # 3) 该周期的半截 rollouts 挪开(否则下次 prepare 重复计数),从该周期续跑、复用已准备好的 parquet
 mv $MS_WORK/rollouts_c7.jsonl $MS_WORK/rollouts_c7.attempt_lr2e5.jsonl 2>/dev/null || true
 MS_START_CYCLE=7 MS_SKIP_PREPARE=1 bash scripts/launch.sh teacher 50
+# 3b) 若该臂在 step N 之后又跑过若干周期(如 teacher 在 lr 2e-5 下跑到了周期 9),先把 MS_WORK 里的
+#     周期状态一并退回 N/10 周期,否则 teacher 会继承坍缩期的剂量决策与裸探针读数:
+K=7; A=$MS_WORK/archive_lr2e5; mkdir -p $A
+cp $MS_WORK/ratio_state.json $A/ratio_state.pre_rollback.json && cp $MS_WORK/ratio_state_c$K.json $MS_WORK/ratio_state.json
+$MS_PYTHON - "$MS_WORK" "$K" <<'PY'
+import json, sys, os
+w, k = sys.argv[1], int(sys.argv[2])
+hp = os.path.join(w, "teacher_transcripts", "history.json")
+if os.path.exists(hp):
+    h = [e for e in json.load(open(hp)) if e.get("cycle", 0) <= k]; json.dump(h, open(hp, "w"), ensure_ascii=False)
+bp = os.path.join(w, "bare_probe.jsonl")
+if os.path.exists(bp):
+    recs = [json.loads(l) for l in open(bp) if l.strip()]; keep = [r for r in recs if r["cycle"] <= k]
+    open(bp, "w").write("".join(json.dumps(r) + "\n" for r in keep))
+    if keep: json.dump(keep[-1], open(os.path.join(w, "bare_probe.json"), "w"))
+print("history/bare trimmed to cycle <=", k)
+PY
+for c in $(seq $K 20); do for f in rollouts_c$c.jsonl rollouts_c$c.attempt*.jsonl train_c$((c+1)).parquet teacher_transcripts/c$((c+1)).json ratio_state_c$((c+1)).json; do
+  [ -e $MS_WORK/$f ] && mkdir -p $A/$(dirname $f) && mv $MS_WORK/$f $A/$f; done; done; ls $A
 # 4) 验证:train_c7.log 头部有 "[stage] ckpt global_step_70 has no optimizer shards",第一行 step 指标里
 #    actor/lr:np.float64(5e-06);wandb 新 run questa_teacher_v3c 从 step 71 起画
 ```
