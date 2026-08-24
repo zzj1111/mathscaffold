@@ -252,6 +252,25 @@ for c in $(seq $K 20); do for f in rollouts_c$c.jsonl rollouts_c$c.attempt*.json
 #    actor/lr:np.float64(5e-06);wandb 新 run questa_teacher_v3c 从 step 71 起画
 ```
 
+## 3h. v4:从 0 起跑,lr 5e-6 + 24K + 软长度惩罚(`scripts/launch_b200_v4.sh`)
+lr 2e-5 在四次 run 里都于 65–90 步长度失控(24K 与 32K 各两次),v4 只改两处:lr 5e-6;DAPO 式
+overlong buffer——回复超过 `MS_MAXRESP-MS_OVERLONG_LEN`(24000-4096=19904)token 后奖励线性下降,
+到上限处为 `-MS_OVERLONG_PENALTY`(默认 0.5),其余样本不受影响,给策略一个"该收尾了"的梯度而不是
+撞上限时的零分悬崖。其他与 QuestA yaml 一致:batch 128×n16、一步一更新(mini 128)、R0=50、paper prompt。
+```bash
+cd /scratch/hongpaul-sandbox/mathscaffold && git pull
+export MS_PYTHON=/scratch/<you>/msenv/bin/python WANDB_API_KEY=... OPENAI_API_KEY=...   # 其余路径脚本自带,可用同名变量覆盖
+bash scripts/launch_b200_v4.sh teacher      # 节点 1 → runs/teacher_v4, ckpts/questa_teacher_v4, wandb questa_teacher_v4{,_arm,_watch}
+bash scripts/launch_b200_v4.sh static       # 节点 2 → 同上 static_v4;MS_SWITCH_CYCLE=25
+```
+预检:路径、GPU 显存全空、目标目录不存在(只做从零起跑;续跑走 3d)。验证:`train_c0.log` 里
+`Training from scratch`、`[stage] overlong penalty on: linear from 19904 to 24000 tokens`、第一步
+`actor/lr:np.float64(5e-06)`;wandb 多出 `overlong_reward`/`overlong`(惩罚均值、被罚比例)与 `acc`(未罚的正确率)。
+不要惩罚:`MS_OVERLONG_LEN= bash scripts/launch_b200_v4.sh teacher`;换力度:`MS_OVERLONG_PENALTY=1.0`(DAPO 原值)。
+实现:`train_stage.sh` 的 `MS_OVERLONG_LEN/MS_OVERLONG_PENALTY` → `reward_model.reward_manager=dapo` +
+`reward_model.reward_kwargs.overlong_buffer_cfg.*`(agent-loop 的 reward loop 走同名 DAPO manager,
+自定义 reward 照常被调用;`rollouts_c*.jsonl` 记的仍是未罚的 0/1,teacher 的统计不受影响)。
+
 ## 4. 自动探针(已内置,无需手动)
 `run_arm.sh` 每 `MS_PROBE_EVERY`(默认 5)个周期 = 每 50 步,在周期边界自动:
 合并最新 ckpt → vLLM 起服务 → 无提示评测 **AIME24 / AIME25 / HMMT25**(各 30 题,

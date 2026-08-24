@@ -48,7 +48,25 @@ if [ "$LATEST" -gt 0 ] && ! ls $CKPTS/global_step_$LATEST/actor/optim_world_size
   echo "[stage] ckpt global_step_$LATEST has no optimizer shards: loading model only -> fresh optimizer at lr ${MS_LR:-2e-5}"
 fi
 
-$PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" \
+# Optional soft length penalty (DAPO overlong buffer, verl reward manager "dapo"): the reward
+# of a response longer than MS_MAXRESP - MS_OVERLONG_LEN decreases linearly, reaching
+# -MS_OVERLONG_PENALTY at the cap; shorter responses are untouched. Gives the policy a
+# "wrap up" gradient BEFORE truncation instead of the reward-0 cliff at the cap (the cliff
+# fed the length runaway). Off unless MS_OVERLONG_LEN is set. The rollout log keeps the raw
+# correctness (reward.py writes its own score before the manager adds the penalty), so the
+# teacher's pass/fail bookkeeping is unaffected; wandb gets acc (raw) and overlong_reward.
+OVERLONG_ARGS=()
+if [ -n "${MS_OVERLONG_LEN:-}" ]; then
+  OVERLONG_ARGS=(reward_model.reward_manager=dapo
+    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=True
+    +reward_model.reward_kwargs.overlong_buffer_cfg.len=$MS_OVERLONG_LEN
+    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${MS_OVERLONG_PENALTY:-1.0}
+    +reward_model.reward_kwargs.overlong_buffer_cfg.log=True
+    +reward_model.reward_kwargs.max_resp_len=${MS_MAXRESP:-32768})
+  echo "[stage] overlong penalty on: linear from $(( ${MS_MAXRESP:-32768} - MS_OVERLONG_LEN )) to ${MS_MAXRESP:-32768} tokens, -${MS_OVERLONG_PENALTY:-1.0} at the cap"
+fi
+
+$PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" "${OVERLONG_ARGS[@]}" \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=$PARQUET \
