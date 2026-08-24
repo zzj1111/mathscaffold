@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# v5: FROM SCRATCH (OpenMath-Nemotron-1.5B base) on one 8xB200 node, QuestA-aligned except
-# lr 5e-6 + KL loss 1e-3 against the ref policy (no length penalty; QuestA has neither —
-# lr 2e-5 without them collapsed by length runaway at steps 65-90 in four runs),
+# v5: FROM SCRATCH (OpenMath-Nemotron-1.5B base) on one 8xB200 node, QuestA's lr 2e-5
+# with a KL loss 1e-3 against the ref policy as the stabilizer (no length penalty; bare
+# lr 2e-5 collapsed by length runaway at steps 65-90 in four runs — v5 tests whether the
+# KL anchor alone holds it),
 # 24K response cap (QuestA training cap), batch 128 x n 16, one update per step (mini 128),
 # R0 = cap = 50, paper prompt, official probe every 5 cycles, bare probe every cycle.
 #
@@ -31,7 +32,7 @@ export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
 
 # ---- experiment (v4) ---------------------------------------------------------------
 export MS_EXP=questa_${ARM}_v5 MS_WORK=$MS_ROOT/runs/${ARM}_v5 MS_WANDB_RUN_ID=questa_${ARM}_v4
-export MS_LR=5e-6            # the one deliberate departure from QuestA's yaml
+export MS_LR=2e-5            # QuestA's lr; the KL anchor below is the departure
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128 MS_N=16
