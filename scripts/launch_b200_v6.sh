@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # v6 = the stable v4 recipe (lr 5e-6 + overlong penalty 4096/-0.5, 24K, 128 x n16, one
-# update/step) with QuestA-faithful DATA:
+# update/step) + QuestA's original data (no dedupe) + MINIMAL-DOSE design:
+#   hint=0 start, cap 50%, steps <=20, and at most 10% of the pool above 25% dose.
+# Data handling shared with v6:
 #   * the ORIGINAL 12,506 rows, no dedupe (MS_NO_DEDUP=1): duplicate problems keep their
 #     own reference generation, dose and state (qids base, base-1, ...);
 #   * starting dose by file provenance (MS_R0_BY_SRC): rows from OpenR1-50-0-4 start at
@@ -36,8 +38,12 @@ export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; offic
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128 MS_N=16
 export MS_NO_DEDUP=1
-export MS_R0_BY_SRC="OpenR1-50-0-4=50,OpenR1-25-0-4=25"
-export MS_R0=25 MS_R_MAX=50 MS_PROMPT_STYLE=paper
+# v6 dosing: EVERY row starts BARE (r=0); no mechanical dose moves at all (the old
+# bare-all-fail auto-jump is deleted) — the teacher raises doses only where the model
+# fails, in steps of at most MS_MAX_DELTA=20, cap 50, under a hard budget: at most
+# 10% of the pool may sit above r=25 (promotions past 25 beyond that are clamped).
+export MS_R0=0 MS_R_MAX=50 MS_MAX_DELTA=20 MS_PROMPT_STYLE=paper
+export MS_HIGH_DOSE_R=25 MS_HIGH_DOSE_FRAC=0.10
 export MS_BARE_SETS=$MS_ROOT/mathscaffold/bare_probe_sets_nodedup.json
 export MS_SWITCH_CYCLE=${MS_SWITCH_CYCLE:-25}   # static arm: 50% -> 25% at cycle 25 (250 steps)
 export MS_STALL_MIN=60       # stage watchdog: a 24K step incl. ckpt save is 15-30 min
@@ -60,7 +66,7 @@ fi
 busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1>3000' | wc -l)
 [ "$busy" = 0 ] || { echo "[preflight] $busy GPU(s) still hold memory:"; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv; exit 3; }
 $MS_PYTHON -c "import verl, vllm; print('[preflight] verl', verl.__version__, 'vllm', vllm.__version__)"
-echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} mini=$MS_MINI_BS R0=by-src(${MS_R0_BY_SRC})/fallback-$MS_R0 nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
+echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} mini=$MS_MINI_BS R0=$MS_R0 cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
 
 # ---- launch ------------------------------------------------------------------------
 bash scripts/launch.sh $ARM $CYCLES
