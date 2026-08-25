@@ -18,6 +18,9 @@ TEACHERFLOW_PATH = os.environ.get(
     os.path.join(os.path.expanduser("~"), "teacherflow"))
 MODEL = os.environ.get("MS_TEACHER_MODEL", "gpt-5.5")
 MAX_BUCKET_OPS, MAX_QID_OPS, MAX_WHERE_OPS = 4, 16, 6
+MAX_DELTA = float(os.environ.get("MS_MAX_DELTA", "20"))
+HIGH_DOSE_R = float(os.environ.get("MS_HIGH_DOSE_R", "0") or 0)      # 0 = no budget
+HIGH_DOSE_FRAC = float(os.environ.get("MS_HIGH_DOSE_FRAC", "0.10"))
 R_MAX = float(os.environ.get("MS_R_MAX", "50"))
 
 
@@ -61,7 +64,7 @@ def normalize(decision, state):
             buckets += 1
             want = op.get("outcome")
             lo, hi = float(op.get("r_min") or 0), float(op.get("r_max") or R_MAX)
-            delta = max(-20.0, min(20.0, float(op.get("delta") or 0)))
+            delta = max(-MAX_DELTA, min(MAX_DELTA, float(op.get("delta") or 0)))
             for qid, h in probs.items():
                 if h.get("state") == "graduated" or h.get("_outcome") != want:
                     continue
@@ -93,7 +96,7 @@ def normalize(decision, state):
                     continue
                 try:
                     new_r = (float(rset) if rset is not None
-                             else cur + max(-20.0, min(20.0, float(delta))))
+                             else cur + max(-MAX_DELTA, min(MAX_DELTA, float(delta))))
                 except (TypeError, ValueError):
                     break
                 sets[qid] = max(0.0, min(R_MAX, new_r))
@@ -106,10 +109,27 @@ def normalize(decision, state):
                     sets[qid] = max(0.0, min(R_MAX, float(op["set"])))
                 except (TypeError, ValueError):
                     pass
+    budget_note = ""
+    if HIGH_DOSE_R > 0 and probs:
+        # hard budget: at most HIGH_DOSE_FRAC of the pool may sit above HIGH_DOSE_R.
+        # Existing holders keep their dose (the teacher may lower them); NEW promotions
+        # are granted in op order until the budget fills, the rest are clamped down.
+        budget = int(HIGH_DOSE_FRAC * len(probs))
+        count = sum(1 for q, h in probs.items()
+                    if float(h.get("r") or 0) > HIGH_DOSE_R and q not in sets)
+        clamped = 0
+        for q, v in sets.items():
+            if v > HIGH_DOSE_R:
+                if count < budget:
+                    count += 1
+                else:
+                    sets[q] = HIGH_DOSE_R
+                    clamped += 1
+        budget_note = f"; high-dose {count}/{budget} above r={int(HIGH_DOSE_R)}, {clamped} promotions clamped"
     return (list(sets.items()), list(decision.get("item_ops") or []),
             list(decision.get("p_ops") or []),
             f"ok ({wheres} where, {buckets} bucket, {qids} qid ops -> {len(sets)} problems; "
-            f"{len(decision.get('item_ops') or [])} item, {len(decision.get('p_ops') or [])} p)")
+            f"{len(decision.get('item_ops') or [])} item, {len(decision.get('p_ops') or [])} p)" + budget_note)
 
 
 def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=None,
@@ -153,8 +173,18 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
                 "Investigate as you see fit, then decide.")
     try:
         rmax = str(int(R_MAX))
+        dmax = str(int(MAX_DELTA))
         system = (MD.MATH_SYSTEM.replace("0..90", "0.." + rmax)
-                  .replace("[0, 90]", "[0, " + rmax + "]"))
+                  .replace("[0, 90]", "[0, " + rmax + "]")
+                  .replace("-20..20", "-" + dmax + ".." + dmax)
+                  .replace("+-20", "+-" + dmax))
+        if HIGH_DOSE_R > 0:
+            system += (f"\nHIGH-DOSE BUDGET: at most {int(HIGH_DOSE_FRAC * 100)}% of the pool may sit "
+                       f"above r={int(HIGH_DOSE_R)}. Enforced at apply time: problems already above keep "
+                       f"their dose (you may lower them); NEW promotions past r={int(HIGH_DOSE_R)} are "
+                       f"granted in op order until the budget fills and the rest are clamped to "
+                       f"r={int(HIGH_DOSE_R)}. get_stats.high_dose shows current usage — spend this "
+                       f"budget on the problems where a high dose demonstrably unlocks successes.")
         decision, transcript = investigate_and_propose(
             _client(), data, model=MODEL, user_preamble=preamble,
             tools=MD, system=system)

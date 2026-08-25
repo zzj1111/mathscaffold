@@ -7,7 +7,8 @@ adaptive_update: evidence-driven —
   all-fail  -> r += UP   (pull the problem back into the gradient band; cap R_MAX)
   all-pass  -> r -= DOWN (anneal toward bare; floor 0)
   mixed     -> hold      (it is producing gradient; leave it alone)
-  r == 0    : bare probe semantics — any success graduates, all-fail relapses to R0.
+  r == 0    : bare probe semantics — any success graduates; all-fail stays at r=0
+              (dosing it is the TEACHER's call; nothing mechanical raises doses).
 static_update: QuestA's global two-stage schedule (50 until switch_step, then 25).
 """
 from __future__ import annotations
@@ -19,7 +20,6 @@ R0 = float(os.environ.get("MS_R0", "50"))
 UP = float(os.environ.get("MS_UP", "15"))
 DOWN = float(os.environ.get("MS_DOWN", "15"))
 R_MAX = float(os.environ.get("MS_R_MAX", "50"))
-RELAPSE_R = float(os.environ.get("MS_RELAPSE_R", "25"))
 
 
 def load_state(path, problems):
@@ -67,16 +67,15 @@ def adaptive_update(state, outcomes, cycle):
             {"cycle": cycle, "r": h["r"], "succ": succ, "n": n}]
         if h.get("state") == "graduated":
             if succ == 0:
-                h.update(state="active", r=RELAPSE_R)
-                notes.append(f"{qid}: relapsed -> r={RELAPSE_R}")
+                h["state"] = "active"          # dose (still r=0) is the teacher's call
+                notes.append(f"{qid}: relapsed -> active at r={h.get('r', 0)}")
             continue
         if h["r"] <= 0:
             if succ >= 1:
                 h["state"] = "graduated"
                 notes.append(f"{qid}: GRADUATED (bare {succ}/{n})")
             else:
-                h["r"] = RELAPSE_R
-                notes.append(f"{qid}: bare probe failed -> r={RELAPSE_R}")
+                notes.append(f"{qid}: bare all-fail (left at r=0 for the teacher)")
         elif succ == 0:
             new = min(R_MAX, h["r"] + UP)
             if new != h["r"]:

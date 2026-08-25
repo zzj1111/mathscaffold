@@ -160,6 +160,12 @@ def dispatch(data, name, args):
                                             for sc, v in (text.get("items") or {}).items() if v},
                                   "p": text.get("p")},
                 "ratio_state": states,
+                "high_dose": (lambda thr, frac, pr: {"thr": thr,
+                    "n_above": sum(1 for h in pr.values() if float(h.get("r") or 0) > thr),
+                    "budget_n": int(frac * len(pr))} if thr > 0 and pr else None)(
+                    float(__import__("os").environ.get("MS_HIGH_DOSE_R", "0") or 0),
+                    float(__import__("os").environ.get("MS_HIGH_DOSE_FRAC", "0.10")),
+                    state.get("problems", state) if isinstance(state, dict) else {}),
                 "recent_decisions": (getattr(data, "state", None) or {}).get("recent", [])}
     if name == "get_problems":
         probs = state.get("problems", state) if isinstance(state, dict) else {}
@@ -310,5 +316,7 @@ HARD CONSTRAINTS (violations are clamped or the op family is voided, never fatal
   where/bucket ops only ever touch THIS WINDOW's problems;
 - text: at most 3 add/update ops per cycle (deletes free); skill/plan <= 500 chars,
   example <= 1500; no duplicates; ONE global p in [0, 0.5];
-- graduation bookkeeping is mechanical (bare success graduates; bare failure after
-  graduation relapses) — you steer doses for ACTIVE problems only."""
+- graduation bookkeeping is mechanical ONLY for state: a bare success graduates, a
+  bare failure returns the problem to the active set at its current dose (r=0). NO
+  mechanism raises doses on its own — every dose move, including rescuing bare
+  all-fail problems and recovering from a wean that tipped over, is yours."""
