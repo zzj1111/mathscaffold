@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# v6 = the stable v4 recipe (lr 5e-6 + overlong penalty 4096/-0.5, 24K, 128 x n16, one
-# update/step) + QuestA's original data (no dedupe) + MINIMAL-DOSE design:
+# v6 = QuestA's lr 2e-5 WITH the overlong penalty (4096/-0.5) as the stabilizer (bare
+# 2e-5 collapsed five times, but never with the penalty; v4 proved the penalty at 5e-6),
+# 24K, 128 x n16, one update/step + QuestA's original data (no dedupe) + MINIMAL-DOSE design:
 #   hint=0 start, cap 50%, steps <=20, and at most 10% of the pool above 25% dose.
 # Data handling shared with v6:
 #   * the ORIGINAL 12,506 rows, no dedupe (MS_NO_DEDUP=1): duplicate problems keep their
@@ -33,7 +34,7 @@ export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
 
 # ---- experiment (v4) ---------------------------------------------------------------
 export MS_EXP=questa_${ARM}_v6 MS_WORK=$MS_ROOT/runs/${ARM}_v6 MS_WANDB_RUN_ID=questa_${ARM}_v6
-export MS_LR=5e-6            # the one deliberate departure from QuestA's yaml
+export MS_LR=2e-5            # QuestA's lr; the overlong penalty is the stabilizer under test
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128 MS_N=16
