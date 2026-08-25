@@ -33,7 +33,7 @@ def main():
     ap.add_argument("--out", default=DEFAULT_OUT)
     a = ap.parse_args()
     problems = D.load_problems(a.jsonl)
-    qids = sorted(p["qid"] for p in problems)
+    qids = sorted({p["qid"].split("-")[0] for p in problems})   # base hashes: one per unique problem
     rng = random.Random(a.seed)
     pick = rng.sample(qids, 2 * a.n)
     sets = {"heldout": sorted(pick[: a.n]), "train": sorted(pick[a.n:]),

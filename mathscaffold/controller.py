@@ -29,7 +29,18 @@ def load_state(path, problems):
         if "problems" not in st:           # v1 flat shape -> wrap
             st = {"problems": st}
     except OSError:
-        st = {"problems": {p["qid"]: {"r": R0, "state": "active", "hist": []}
+        # starting dose: MS_R0_BY_SRC="50-0-4=50,25-0-4=25" assigns by source file
+        # (substring match on the row's src, first rule wins; QuestA's stage files
+        # were difficulty-filtered AT their own prefix ratio, so each row starts at
+        # the dose it was selected for); rows matching no rule get R0.
+        rules = [(k, float(v)) for k, v in
+                 (r.split("=") for r in os.environ.get("MS_R0_BY_SRC", "").split(",") if "=" in r)]
+        def _r0(p):
+            for sub, val in rules:
+                if sub in str(p.get("src") or ""):
+                    return val
+            return R0
+        st = {"problems": {p["qid"]: {"r": _r0(p), "state": "active", "hist": []}
                            for p in problems}}
     if "text" not in st:
         from . import textscaffold as TS

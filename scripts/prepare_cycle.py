@@ -169,7 +169,7 @@ if os.environ.get("MS_BARE_PROBE", "1") != "0":
         heldout = set(json.load(open(_sets))["heldout"])
     except (OSError, ValueError, KeyError) as _e:
         print(f"[prepare] WARNING: no held-out set ({_e}); serving the full pool")
-qids = [p["qid"] for p in problems if p["qid"] not in heldout]
+qids = [p["qid"] for p in problems if p["qid"].split("-")[0] not in heldout]
 random.Random(20260814).shuffle(qids)
 lo = (a.cycle * a.served) % len(qids)
 served = set((qids + qids)[lo:lo + a.served])

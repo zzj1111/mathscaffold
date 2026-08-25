@@ -13,17 +13,24 @@ import os
 
 
 def load_problems(jsonl_paths):
-    """-> list of {qid, problem, answer, solution} from one path or a
-    comma-separated list (QuestA ships two stage files; we train one merged pool).
-    qid = content hash of the normalized problem text: stable across files, file
-    order, and reruns. Dedupe by the same key — QuestA's files repeat problems
-    with different reference generations, and the two files overlap."""
+    """-> list of {qid, problem, answer, solution, src} from one path or a
+    comma-separated list. qid = content hash of the normalized problem text.
+
+    Default: dedupe by problem text (QuestA's files repeat problems with different
+    reference generations, and the two stage files overlap) and drop rows whose
+    answer string does not appear in the post-</think> solution.
+    MS_NO_DEDUP=1: keep EVERY original row (QuestA's files as shipped, 12,506 rows;
+    no containment filter). Duplicate problems get qids base, base-1, base-2 ... so
+    every row has its own dose/state; held-out exclusion matches on the base hash
+    (prepare_cycle), so no duplicate of a held-out problem is ever trained on."""
+    no_dedup = os.environ.get("MS_NO_DEDUP", "0") == "1"
     out = []
-    seen = set()
+    seen = {}
     for jsonl_path in str(jsonl_paths).split(","):
         jsonl_path = jsonl_path.strip()
         if not jsonl_path:
             continue
+        src = os.path.basename(jsonl_path)
         with open(jsonl_path) as f:
             for line in f:
                 try:
@@ -35,15 +42,17 @@ def load_problems(jsonl_paths):
                     gen = gen[1:-1]
                 solution = gen.split("</think>")[-1]
                 answer = str(d.get("answer") or "")
-                if not answer or answer not in solution:
+                if not answer or (not no_dedup and answer not in solution):
                     continue
                 key = " ".join(str(d["problem"]).split())
-                if key in seen:
+                k = seen.get(key, 0)
+                if k and not no_dedup:
                     continue
-                seen.add(key)
-                qid = "q" + hashlib.sha1(key.encode()).hexdigest()[:10]
+                seen[key] = k + 1
+                base = "q" + hashlib.sha1(key.encode()).hexdigest()[:10]
+                qid = base if k == 0 else f"{base}-{k}"
                 out.append({"qid": qid, "problem": d["problem"],
-                            "answer": answer, "solution": solution})
+                            "answer": answer, "solution": solution, "src": src})
     return out
 
 
