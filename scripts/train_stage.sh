@@ -69,6 +69,7 @@ fi
 $PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" "${OVERLONG_ARGS[@]}" \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
+    ${MS_ADV_STD:+algorithm.norm_adv_by_std_in_grpo=$MS_ADV_STD} \
     data.train_files=$PARQUET \
     data.val_files=$PARQUET \
     data.train_batch_size=${MS_BS:-128} \

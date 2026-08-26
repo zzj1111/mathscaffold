@@ -178,10 +178,25 @@ stage_src = os.environ.get("MS_STAGE1_SRC" if a.cycle < a.switch_cycle else "MS_
 pool = [p for p in problems if not stage_src or stage_src in str(p.get("src") or "")]
 if stage_src:
     print(f"[prepare] stage filter '{stage_src}': {len(pool)}/{len(problems)} rows in the served pool")
-qids = [p["qid"] for p in pool if p["qid"].split("-")[0] not in heldout]
-random.Random(20260814).shuffle(qids)
-lo = (a.cycle * a.served) % len(qids)
-served = set((qids + qids)[lo:lo + a.served])
+# Serving queue (state["serve_queue"]): every problem is served once per epoch, and a
+# problem leaves the queue only once the ROLLOUT LOG proves it was actually consumed.
+# Index arithmetic (cycle * served) silently breaks the moment consumption per step is
+# variable — which is exactly what DAPO-style dynamic filtering does: the trainer keeps
+# pulling prompts until it has train_batch_size groups with mixed rewards, so a cycle
+# eats ~served/accept_rate problems, not `served`. Over-serving is harmless here: rows
+# the trainer never reached stay at the head of the queue for the next cycle.
+pool_qids = [p["qid"] for p in pool if p["qid"].split("-")[0] not in heldout]
+pool_set = set(pool_qids)
+queue = [q for q in (state.get("serve_queue") or []) if q in pool_set]
+queue = [q for q in queue if q not in outcomes]          # retire what was really consumed
+if len(queue) < a.served:                                 # new epoch (or first cycle / stage switch)
+    fresh = [q for q in pool_qids if q not in set(queue)]
+    random.Random(20260814 + a.cycle).shuffle(fresh)
+    queue = queue + fresh
+served = set(queue[: a.served])
+state["serve_queue"] = queue
+print(f"[prepare] serving {len(served)} of {len(pool_qids)} pool rows; "
+      f"queue {len(queue)} left, {len(outcomes)} retired by last cycle's rollouts")
 rows = D.build_rows(problems, state, served, cycle=a.cycle)
 D.write_parquet(rows, a.out)
 C.save_state(state, a.state)
