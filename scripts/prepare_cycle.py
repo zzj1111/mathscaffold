@@ -138,8 +138,18 @@ elif a.arm == "teacher":
                                transcript_dir=os.path.join(os.path.dirname(a.state) or ".",
                                                            "teacher_transcripts"))
     if result is None:
-        state, notes2 = C.adaptive_update(state, outcomes, a.cycle)
-        notes += [note] + notes2
+        # Teacher unreachable/malformed. Doses are the Teacher's alone in this design
+        # (no mechanism raises them on its own, and the high-dose budget lives in
+        # teacher.normalize), so the safe failure mode is to leave every dose untouched
+        # for this cycle rather than fall back to the mechanical +-15 rule, which would
+        # both contradict that and bypass the budget. MS_TEACHER_FALLBACK=adaptive
+        # restores the old behaviour.
+        if os.environ.get("MS_TEACHER_FALLBACK", "none") == "adaptive":
+            state, notes2 = C.adaptive_update(state, outcomes, a.cycle)
+            notes += [note] + notes2
+        else:
+            notes += [note, "teacher unavailable -> doses left UNCHANGED this cycle "
+                            "(MS_TEACHER_FALLBACK=adaptive to use the mechanical rule)"]
     else:
         sets, item_ops, p_ops, tnote = result
         for qid, new_r in sets:

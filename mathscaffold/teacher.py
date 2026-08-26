@@ -189,7 +189,7 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
             _client(), data, model=MODEL, user_preamble=preamble,
             tools=MD, system=system)
     except Exception as e:
-        return None, f"teacher unreachable ({str(e)[:120]}) -> mechanical fallback", []
+        return None, f"teacher unreachable ({str(e)[:120]}) -> see next line", []
     # (note: returns (sets, item_ops, p_ops, note) via normalize on success)
     if transcript_dir:
         try:
