@@ -116,12 +116,32 @@ def _verify_inprocess(solution_str, ground_truth):
 
 
 def _verify(solution_str, ground_truth):
-    """-> (score, timed_out). Parse only the answer-bearing tail of the response."""
-    tail = str(solution_str or "")[-TAIL_CHARS:]
+    """-> (score, timed_out). Parse the answer-bearing tail of the response.
+
+    Second chance when the tail scores 0 but the LAST \\boxed{} sits before it: a response
+    that boxes its answer and then keeps writing (verification, alternative routes) would
+    otherwise be marked wrong. Measured on 20,480 real rollouts: 0.45% of all of them, but
+    the miss rate scales with length — 0% below 20K chars, 0.26% at 20-40K, 0.63% above
+    40K — i.e. it is a silent penalty on long-but-correct answers, precisely the regime
+    whose dynamics we are studying. The extra parse only runs for the ~6% of zeros at risk.
+    """
+    s = str(solution_str or "")
+    tail = s[-TAIL_CHARS:]
     try:
-        return _POOL.verify(tail, ground_truth)
+        score, timed_out = _POOL.verify(tail, ground_truth)
     except Exception:
-        return _verify_inprocess(tail, ground_truth), False
+        score, timed_out = _verify_inprocess(tail, ground_truth), False
+    if score <= 0 and len(s) > TAIL_CHARS:
+        i = s.rfind("\\boxed{")
+        if 0 <= i < len(s) - TAIL_CHARS:
+            seg = s[max(0, i - 200): i + TAIL_CHARS]
+            try:
+                score2, t2 = _POOL.verify(seg, ground_truth)
+            except Exception:
+                score2, t2 = _verify_inprocess(seg, ground_truth), False
+            if score2 > 0:
+                return score2, timed_out or t2
+    return score, timed_out
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info=None, **kw):

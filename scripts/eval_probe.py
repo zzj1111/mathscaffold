@@ -64,12 +64,26 @@ def one(idx_item, qk, ak):
     ok = 0
     gold = parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None)
     for ch in r.choices:
+        txt = ch.message.content or ""
+        hit = False
         try:
-            ok += 1 if verify(gold, parse((ch.message.content or "")[-3000:],
-                                          parsing_timeout=None),
-                              timeout_seconds=None) else 0
+            hit = bool(verify(gold, parse(txt[-3000:], parsing_timeout=None),
+                              timeout_seconds=None))
         except Exception:
             pass
+        # same second chance as the training reward (mathscaffold/reward.py): a response
+        # that boxes its answer and then keeps writing past the 3000-char tail would
+        # otherwise be scored wrong — a length-dependent false negative (0% below 20K
+        # chars, 0.63% above 40K on real rollouts). Keep probe and reward identical.
+        if not hit and len(txt) > 3000:
+            i = txt.rfind("\\boxed{")
+            if 0 <= i < len(txt) - 3000:
+                try:
+                    hit = bool(verify(gold, parse(txt[max(0, i - 200): i + 3000],
+                                                  parsing_timeout=None), timeout_seconds=None))
+                except Exception:
+                    pass
+        ok += 1 if hit else 0
     return ok / a.n
 
 ERRORS = []
