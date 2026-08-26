@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-# v9 = FAITHFUL QuestA optimization parameters + one deliberate change (advantage /std off):
+# v9 = faithful QuestA optimization parameters + three deliberate changes:
+#   * advantage /std OFF (see below)
+#   * group size 8 instead of 16 (MS_N): halves tokens/step, so ~2x more steps per day —
+#     which matters because the eps-damped optimizer needs 500+ steps to show anything.
+#     Measured cost on real rollouts (v4_s50 c0, r=50, 24K): trainable (mixed) groups drop
+#     68.8% -> 58.3%, i.e. 88 -> 75 per 128-prompt step, and a rare success on a p=0.1
+#     problem is seen 57% of the time instead of 81% (the teacher's dose feedback gets noisier).
+#   * DAPO dynamic filtering ON (QuestA/AReaL do this; verl only implements it in the DAPO
+#     recipe trainer, which train_stage.sh switches to). With n=8 the accept rate is ~58%,
+#     so a cycle eats ~1.7x more prompts -> MS_SERVE_MULT=2.5.
 #   * AdamW lr 2e-5, betas (0.9, 0.95), weight_decay 0.05, eps 1e-5 — their AReaL values as a
 #     SET. Measured: at our real gradient scale (per-param RMS ~5e-7) eps dominates the Adam
 #     denominator, so the update is momentum-SGD with lr_sgd = lr/eps = 2.0, i.e. an effective
@@ -48,6 +57,10 @@ export MS_EXP=questa_${ARM}_v9 MS_WORK=$MS_ROOT/runs/${ARM}_v9 MS_WANDB_RUN_ID=q
 export MS_LR=2e-5            # QuestA's lr — only safe together with eps below
 export MS_BETA2=0.95 MS_WD=0.05 MS_EPS=1e-5   # their AReaL optimizer, transplanted as a SET
 export MS_ADV_STD=False      # drop GRPO's /std (keep per-group centering)
+export MS_N=8                # group size 8 (QuestA uses 16); halves tokens/step
+export MS_FILTER_GROUPS=seq_final_reward MS_MAX_GEN_BATCHES=10
+export MS_SERVE_MULT=2.5     # filtering eats ~1/accept_rate prompts per step; unconsumed rows
+                             # return to the serving queue, so over-serving is free
 export MS_OVERLONG_LEN=      # no length penalty (faithful: they have none)
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
@@ -81,7 +94,7 @@ fi
 busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1>3000' | wc -l)
 [ "$busy" = 0 ] || { echo "[preflight] $busy GPU(s) still hold memory:"; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv; exit 3; }
 $MS_PYTHON -c "import verl, vllm; print('[preflight] verl', verl.__version__, 'vllm', vllm.__version__)"
-echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR beta2=${MS_BETA2:-0.999} wd=${MS_WD:-0.01} eps=${MS_EPS:-1e-8} advstd=${MS_ADV_STD:-True} maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} mini=$MS_MINI_BS R0=$MS_R0 cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
+echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR beta2=${MS_BETA2:-0.999} wd=${MS_WD:-0.01} eps=${MS_EPS:-1e-8} advstd=${MS_ADV_STD:-True} maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} n=${MS_N:-16} filter=${MS_FILTER_GROUPS:-off} mini=$MS_MINI_BS R0=$MS_R0 cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
 
 # ---- launch ------------------------------------------------------------------------
 bash scripts/launch.sh $ARM $CYCLES

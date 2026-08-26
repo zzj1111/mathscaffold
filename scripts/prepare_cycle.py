@@ -201,10 +201,20 @@ served = set(queue[: a.served])
 state["serve_queue"] = queue
 print(f"[prepare] serving {len(served)} of {len(pool_qids)} pool rows; "
       f"queue {len(queue)} left, {len(outcomes)} retired by last cycle's rollouts")
-if outcomes and len(outcomes) > a.served:
-    print(f"[prepare] WARNING: last cycle consumed {len(outcomes)} prompts but only {a.served} were "
-          f"served -> the trainer wrapped the parquet and some problems were trained twice. "
-          f"Raise MS_SERVE_MULT (now {os.environ.get('MS_SERVE_MULT', '1.0')}).")
+# how hungry was the last cycle really? outcomes is deduped by qid, so it can never exceed
+# the slice size; a wrapped parquet shows up as problems sampled more than once (rollouts
+# per problem > group size). Report the observed accept rate too, so MS_SERVE_MULT is set
+# from data instead of guessed.
+if outcomes:
+    _n = int(os.environ.get("MS_N", "16"))
+    _drawn = sum(max(1, round(n_ / _n)) for _, n_ in outcomes.values())
+    _acc = (sum(1 for s_, n_ in outcomes.values() if 0 < s_ < n_) / max(1, len(outcomes)))
+    print(f"[prepare] last cycle: {len(outcomes)} problems, ~{_drawn} group draws, "
+          f"mixed-group rate {_acc:.0%}")
+    if _drawn > a.served:
+        print(f"[prepare] WARNING: ~{_drawn} draws from a {a.served}-row slice -> the trainer wrapped "
+              f"the parquet and re-trained some problems. Raise MS_SERVE_MULT (now "
+              f"{os.environ.get('MS_SERVE_MULT', '1.0')}); ~{_drawn / max(1, int(os.environ.get('MS_K','10')) * int(os.environ.get('MS_BS','128'))):.1f} would fit.")
 rows = D.build_rows(problems, state, served, cycle=a.cycle)
 D.write_parquet(rows, a.out)
 C.save_state(state, a.state)
