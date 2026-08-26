@@ -120,11 +120,23 @@ def normalize(decision, state):
         # Existing holders keep their dose (the teacher may lower them); NEW promotions
         # are granted in op order until the budget fills, the rest are clamped down.
         budget = int(HIGH_DOSE_FRAC * len(probs))
-        count = sum(1 for q, h in probs.items()
-                    if float(h.get("r") or 0) > HIGH_DOSE_R and q not in sets)
+        # Holders are grandfathered: a problem already above the threshold keeps its dose
+        # and may be adjusted (the wean policy does exactly that). Only a NEW entrant
+        # (previous dose <= threshold, new dose above it) consumes budget. Counting every
+        # touched problem as a new promotion — the previous version — meant that once the
+        # budget was full, merely weaning a holder from 40 to 35 slammed it down to the
+        # threshold, a drop the Teacher never asked for.
+        count = 0
+        for q, h in probs.items():
+            cur = float(h.get("r") or 0)
+            if q in sets:
+                if cur > HIGH_DOSE_R and sets[q] > HIGH_DOSE_R:
+                    count += 1
+            elif cur > HIGH_DOSE_R:
+                count += 1
         clamped = 0
         for q, v in sets.items():
-            if v > HIGH_DOSE_R:
+            if v > HIGH_DOSE_R and float(probs[q].get("r") or 0) <= HIGH_DOSE_R:
                 if count < budget:
                     count += 1
                 else:
