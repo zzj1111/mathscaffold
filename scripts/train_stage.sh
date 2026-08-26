@@ -80,6 +80,7 @@ $PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" "${OVERLONG_ARG
     actor_rollout_ref.actor.optim.lr=${MS_LR:-2e-5} \
     ${MS_BETA2:+"actor_rollout_ref.actor.optim.betas=[0.9,$MS_BETA2]"} \
     ${MS_WD:+actor_rollout_ref.actor.optim.weight_decay=$MS_WD} \
+    ${MS_EPS:++actor_rollout_ref.actor.optim.override_optimizer_config.eps=$MS_EPS} \
     actor_rollout_ref.actor.ppo_mini_batch_size=${MS_MINI_BS:-128} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MS_MICRO_BS:-2} \
     actor_rollout_ref.actor.use_kl_loss=$([ -n "${MS_KL:-}" ] && echo True || echo False) \
