@@ -61,7 +61,8 @@ export MS_N=8                # group size 8 (QuestA uses 16); halves tokens/step
 export MS_FILTER_GROUPS=seq_final_reward MS_MAX_GEN_BATCHES=10
 export MS_SERVE_MULT=2.5     # filtering eats ~1/accept_rate prompts per step; unconsumed rows
                              # return to the serving queue, so over-serving is free
-export MS_OVERLONG_LEN=      # no length penalty (faithful: they have none)
+export MS_OVERLONG_LEN= MS_OVERLONG_PENALTY=0.5   # penalty OFF (empty LEN); PENALTY only
+                             # matters if you re-enable LEN. Faithful QuestA has no length penalty.
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128               # MS_N is set above (8); do not re-assign it here
@@ -75,11 +76,6 @@ export MS_HIGH_DOSE_R=25 MS_HIGH_DOSE_FRAC=0.10
 export MS_BARE_SETS=$MS_ROOT/mathscaffold/bare_probe_sets_nodedup.json
 export MS_SWITCH_CYCLE=${MS_SWITCH_CYCLE:-25}   # static arm: 50% -> 25% at cycle 25 (250 steps)
 export MS_STALL_MIN=60       # stage watchdog: a 24K step incl. ckpt save is 15-30 min
-# soft length penalty (DAPO overlong buffer): reward falls linearly over the last MS_OVERLONG_LEN
-# tokens before the cap, down to -MS_OVERLONG_PENALTY at the cap (a truncated correct answer
-# then scores 1-0.5=0.5, a truncated wrong one -0.5); responses under 24000-4096=19904 tokens
-# are untouched. Unset MS_OVERLONG_LEN (export MS_OVERLONG_LEN=) to run without it.
-export MS_OVERLONG_LEN=${MS_OVERLONG_LEN-4096} MS_OVERLONG_PENALTY=${MS_OVERLONG_PENALTY:-0.5}
 export MS_PROBE_EVERY=5 MS_BARE_PROBE=1 MS_BARE_EVERY=1
 
 # ---- preflight ---------------------------------------------------------------------
