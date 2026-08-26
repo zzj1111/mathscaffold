@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # v8 = v7's exact twin (lr 1e-5 + overlong penalty, hint=0 minimal-dose, cap 50, step
 # <=20, 10% high-dose budget, no-dedupe data) with ONE change: the optimizer aligned to
-# QuestA's AReaL yaml — AdamW betas (0.9, 0.95), weight_decay 0.05, eps 1e-5 (verl
-# defaults are 0.999 / 0.01 / 1e-8). A clean A/B on the Adam settings against v7,
+# QuestA's AReaL yaml — AdamW betas (0.9, 0.95), weight_decay 0.05, (verl defaults
+# 0.999 / 0.01; eps stays default — see note below). A clean A/B on Adam betas/wd vs v7,
 # 24K, 128 x n16, one update/step + QuestA's original data (no dedupe) + MINIMAL-DOSE design:
 #   hint=0 start, cap 50%, steps <=20, and at most 10% of the pool above 25% dose.
 # Data handling shared with v6:
@@ -37,7 +37,11 @@ export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
 # ---- experiment (v4) ---------------------------------------------------------------
 export MS_EXP=questa_${ARM}_v8 MS_WORK=$MS_ROOT/runs/${ARM}_v8 MS_WANDB_RUN_ID=questa_${ARM}_v8
 export MS_LR=1e-5            # identical to v7; the optimizer lines below are the only change
-export MS_BETA2=0.95 MS_WD=0.05 MS_EPS=1e-5   # QuestA AReaL optimizer (verl defaults: 0.999/0.01/1e-8)
+export MS_BETA2=0.95 MS_WD=0.05               # QuestA AReaL betas/wd (verl defaults 0.999/0.01)
+# NOTE: AReaL's eps=1e-5 is NOT transplanted — under verl's token-mean loss the per-param
+# gradient RMS is ~4e-7, so eps 1e-5 dominates the Adam denominator and cuts the effective
+# lr ~25x (observed live: v8's first 50 steps learned nothing, bare stuck at base while
+# grads were normal). Their eps is coupled to reward_scaling=5; ours stays at 1e-8.
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128 MS_N=16
