@@ -132,6 +132,31 @@ def normalize(decision, state):
             f"{len(decision.get('item_ops') or [])} item, {len(decision.get('p_ops') or [])} p)" + budget_note)
 
 
+
+def _prev_window_rows(rollout_log, cycle):
+    """Light rows ({qid, score}) from the window BEFORE the one being judged.
+    rollout_log is .../rollouts_c{cycle-1}.jsonl, so the previous window is c-2."""
+    if not rollout_log or cycle < 2:
+        return []
+    prev = os.path.join(os.path.dirname(rollout_log), f"rollouts_c{cycle - 2}.jsonl")
+    if not os.path.exists(prev):
+        return []
+    out = []
+    try:
+        with open(prev) as f:
+            for ln in f:
+                i = ln.find('"qid"')
+                if i < 0:
+                    continue
+                try:
+                    d = json.loads(ln)
+                except ValueError:
+                    continue
+                out.append({"qid": d.get("qid"), "score": d.get("score")})
+    except OSError:
+        return []
+    return out
+
 def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=None,
            problems=None):
     """One Teacher decision. Mutates nothing; returns (sets, note, transcript).
@@ -158,6 +183,15 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
                                       ("all_pass" if succ == n else "mixed"))
             probs[qid]["_succ_frac"] = round(succ / n, 3) if n else None
     data = RunData(rollout_log, scaffold_path=None, state_path=None)
+    # get_stats' "last window's all-fail problems: escaped vs still stuck" section reads
+    # data.prev_rows, which RunData only fills from a TAIL of the same file (the ALFWorld
+    # design: one append-only log). Our logs are one file per cycle, so prev_rows has been
+    # empty in every run to date and that section has always reported 0 escaped / 0 reseen
+    # — the system prompt calls it "your most direct evidence of the right dose", so the
+    # Teacher was being shown a structural zero as if it were a measurement. Load the
+    # previous cycle's file explicitly, keeping only the fields the section uses (qid,
+    # score) so a multi-GB log costs almost nothing.
+    data.prev_rows = _prev_window_rows(rollout_log, cycle)
     data.scaffold = state
     data.problems = {p["qid"]: p for p in (problems or [])}
     hist_path = os.path.join(transcript_dir, "history.json") if transcript_dir else None
