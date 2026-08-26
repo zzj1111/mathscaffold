@@ -44,6 +44,8 @@ export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
 # ---- experiment (v4) ---------------------------------------------------------------
 export MS_EXP=questa_${ARM}_v8 MS_WORK=$MS_ROOT/runs/${ARM}_v8 MS_WANDB_RUN_ID=questa_${ARM}_v8
 export MS_LR=1e-5            # winning stack from the scan; overlong penalty on
+export MS_BETA2=0.95         # QuestA's AReaL optimizer: beta2 0.95 tracks grad-norm shifts ~50x
+                             # faster than verl's default 0.999 (MS_WD=0.05 also available)
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128 MS_N=16
@@ -78,7 +80,7 @@ fi
 busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1>3000' | wc -l)
 [ "$busy" = 0 ] || { echo "[preflight] $busy GPU(s) still hold memory:"; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv; exit 3; }
 $MS_PYTHON -c "import verl, vllm; print('[preflight] verl', verl.__version__, 'vllm', vllm.__version__)"
-echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} mini=$MS_MINI_BS R0=by-src(${MS_R0_BY_SRC}) stages=${MS_STAGE1_SRC}->${MS_STAGE2_SRC}@c${MS_SWITCH_CYCLE} cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
+echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR beta2=${MS_BETA2:-0.999} wd=${MS_WD:-0.01} maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} mini=$MS_MINI_BS R0=by-src(${MS_R0_BY_SRC}) stages=${MS_STAGE1_SRC}->${MS_STAGE2_SRC}@c${MS_SWITCH_CYCLE} cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
 
 # ---- launch ------------------------------------------------------------------------
 bash scripts/launch.sh $ARM $CYCLES
