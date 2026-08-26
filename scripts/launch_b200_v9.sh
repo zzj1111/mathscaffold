@@ -61,8 +61,13 @@ export MS_N=8                # group size 8 (QuestA uses 16); halves tokens/step
 export MS_FILTER_GROUPS=seq_final_reward MS_MAX_GEN_BATCHES=10
 export MS_SERVE_MULT=2.5     # filtering eats ~1/accept_rate prompts per step; unconsumed rows
                              # return to the serving queue, so over-serving is free
-export MS_OVERLONG_LEN= MS_OVERLONG_PENALTY=0.5   # penalty OFF (empty LEN); PENALTY only
-                             # matters if you re-enable LEN. Faithful QuestA has no length penalty.
+# LENGTH PENALTY OFF. Empty MS_OVERLONG_LEN means train_stage.sh passes verl no overlong
+# argument at all (its whole block is guarded by [ -n "$MS_OVERLONG_LEN" ]), so reward ==
+# score with no length term. Faithful QuestA has no length penalty; here the eps-damped
+# optimizer is the stabiliser under test, and a length term would confound it. To re-enable,
+# set MS_OVERLONG_LEN=4096 (and optionally MS_OVERLONG_PENALTY, default 1.0) — deliberately
+# NOT pre-set here, so nothing can silently switch it on.
+export MS_OVERLONG_LEN=
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
 export MS_BS=128               # MS_N is set above (8); do not re-assign it here
@@ -90,7 +95,7 @@ fi
 busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1>3000' | wc -l)
 [ "$busy" = 0 ] || { echo "[preflight] $busy GPU(s) still hold memory:"; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv; exit 3; }
 $MS_PYTHON -c "import verl, vllm; print('[preflight] verl', verl.__version__, 'vllm', vllm.__version__)"
-echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR beta2=${MS_BETA2:-0.999} wd=${MS_WD:-0.01} eps=${MS_EPS:-1e-8} advstd=${MS_ADV_STD:-True} maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off}/${MS_OVERLONG_PENALTY} n=${MS_N:-16} filter=${MS_FILTER_GROUPS:-off} mini=$MS_MINI_BS R0=$MS_R0 cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
+echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR beta2=${MS_BETA2:-0.999} wd=${MS_WD:-0.01} eps=${MS_EPS:-1e-8} advstd=${MS_ADV_STD:-True} maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off} n=${MS_N:-16} filter=${MS_FILTER_GROUPS:-off} mini=$MS_MINI_BS R0=$MS_R0 cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
 
 # ---- launch ------------------------------------------------------------------------
 bash scripts/launch.sh $ARM $CYCLES
