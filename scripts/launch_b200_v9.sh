@@ -81,7 +81,10 @@ export MS_HIGH_DOSE_R=25 MS_HIGH_DOSE_FRAC=0.10
 export MS_BARE_SETS=$MS_ROOT/mathscaffold/bare_probe_sets_nodedup.json
 export MS_SWITCH_CYCLE=${MS_SWITCH_CYCLE:-25}   # static arm: 50% -> 25% at cycle 25 (250 steps)
 export MS_STALL_MIN=60       # stage watchdog: a 24K step incl. ckpt save is 15-30 min
-export MS_PROBE_EVERY=5 MS_BARE_PROBE=1 MS_BARE_EVERY=1
+# official AIME24/25 + HMMT25 probe every 2 cycles = every 20 steps (was 5 cycles = 50).
+# The FSDP->HF merge is shared with the per-cycle bare probe (probe_ckpt.sh skips it when
+# $CK/hf already exists), so the added cost is the eval itself: 90 problems x n=32 at 32K.
+export MS_PROBE_EVERY=2 MS_BARE_PROBE=1 MS_BARE_EVERY=1
 
 # ---- preflight ---------------------------------------------------------------------
 cd $MS_ROOT
