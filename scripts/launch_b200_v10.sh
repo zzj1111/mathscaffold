@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# v10 = v9's CONTROLLED TWIN: identical in every respect except the update geometry.
+#
+# WHY. v9 runs QuestA's optimizer as a set, and at our measured gradient scale (per-param
+# RMS ~5e-7) eps=1e-5 dominates Adam's denominator, so the update degenerates to momentum
+# SGD: dtheta = (lr/eps) * mhat, PROPORTIONAL to gradient magnitude. True Adam instead
+# normalises: dtheta = lr * mhat/sqrt(vhat), magnitude ~lr regardless of gradient scale.
+# That difference matters for us specifically: gradient scale is a function of what the
+# Teacher does (dose changes move the informative-group fraction and the response length),
+# and two healthy arms measured 2.7x apart in grad_norm (v4 0.047 vs v7 0.0176). Under
+# v9's geometry that IS a 2.7x difference in effective step, so a Teacher-vs-static
+# comparison run there cannot separate "learned differently" from "stepped differently".
+# Adam's scale invariance cuts that coupling. v10 is the arm the headline comparison
+# should eventually live in — if it trains.
+#
+# THE ONE CHANGE (and why lr moves with it). eps 1e-5 -> 1e-8 flips the geometry; lr
+# 2e-5 -> 1e-6 holds the STEP SIZE fixed so the geometry is the only free variable:
+#   v9  per-param |dtheta| ~ (2e-5/1e-5) * 5e-7 = 1e-6  ; ||dtheta|| ~ 2 * grad_norm ~ 0.04
+#   v10 per-param |dtheta| ~ lr = 1e-6                  ; ||dtheta|| ~ lr*sqrt(N)  = 0.039
+# (matched to ~1.5x; if v9's healthy grad_norm lands near 0.03 rather than 0.02 the exact
+# match would be 1.5e-6 — worth noting when reading the two curves, not worth chasing.)
+# 1e-6 true-Adam is also the one setting we have already survived: v1 ran 290 steps at it
+# without collapse, and v10 adds two stabilisers v1 lacked (/std off, dynamic filtering).
+#
+# Everything else is v9 verbatim: /std off, n=8, dynamic filtering, no length penalty,
+# same data and dose design. Budget it the same way — 500+ steps, nothing visible in 100.
+#
+# NEXT: whichever of v9/v10 is alive at ~200 steps gets the matched STATIC arm
+# (bash scripts/launch_b200_vX.sh static) — that pair, not either arm alone, is the claim.
+#
+# v9's header, still describing everything v10 inherits:
+# v9 = faithful QuestA optimization parameters + three deliberate changes:
+#   * advantage /std OFF (see below)
+#   * group size 8 instead of 16 (MS_N): halves tokens/step, so ~2x more steps per day —
+#     which matters because the eps-damped optimizer needs 500+ steps to show anything.
+#     Measured cost on real rollouts (v4_s50 c0, r=50, 24K): trainable (mixed) groups drop
+#     68.8% -> 58.3%, i.e. 88 -> 75 per 128-prompt step, and a rare success on a p=0.1
+#     problem is seen 57% of the time instead of 81% (the teacher's dose feedback gets noisier).
+#   * DAPO dynamic filtering ON (QuestA/AReaL do this; verl only implements it in the DAPO
+#     recipe trainer, which train_stage.sh switches to). With n=8 the accept rate is ~58%,
+#     so a cycle eats ~1.7x more prompts -> MS_SERVE_MULT=2.5.
+#   * AdamW lr 2e-5, betas (0.9, 0.95), weight_decay 0.05, eps 1e-5 — their AReaL values as a
+#     SET. Measured: at our real gradient scale (per-param RMS ~5e-7) eps dominates the Adam
+#     denominator, so the update is momentum-SGD with lr_sgd = lr/eps = 2.0, i.e. an effective
+#     true-Adam lr of ~1e-6. That damping is exactly why 2e-5 survives 2000 steps for them.
+#     => budget this arm for 500+ steps; nothing much happens in 100.
+#   * NO overlong penalty (they have none) — the eps damping is the stabilizer under test.
+#   * norm_adv_by_std_in_grpo=False: keep GRPO's per-group centering but drop the /std, which
+#     inflates advantages on near-uniform groups (1/16 success -> +3.87 vs +1.0) and is our
+#     leading suspect for the grad-norm spikes that start every collapse. Their global
+#     whitening has no such amplification.
+# Data/dose design unchanged from v6/v7 (original 12,506 rows, hint=0 start, cap 50, step <=20,
+# 10% budget above r=25),
+# 24K, 128 x n16, one update/step + QuestA's original data (no dedupe) + MINIMAL-DOSE design:
+#   hint=0 start, cap 50%, steps <=20, and at most 10% of the pool above 25% dose.
+# Data handling shared with v6:
+#   * the ORIGINAL 12,506 rows, no dedupe (MS_NO_DEDUP=1): duplicate problems keep their
+#     own reference generation, dose and state (qids base, base-1, ...);
+#   * starting dose by file provenance (MS_R0_BY_SRC): rows from OpenR1-50-0-4 start at
+#     r=50, rows from OpenR1-25-0-4 at r=25 — each row at the prefix ratio its difficulty
+#     filter (0-4/8 correct WITH that hint) selected it for. The teacher steers from there.
+#   * held-out bare-probe sets exclude every duplicate of a held-out problem (base-hash match).
+#
+#   cd /scratch/hongpaul-sandbox/mathscaffold && git pull
+#   export MS_PYTHON=/scratch/<you>/msenv/bin/python OPENAI_API_KEY=... WANDB_API_KEY=...
+#   bash scripts/launch_b200_v10.sh teacher
+#
+# Everything else is derived below; edit the "site" block if your paths differ.
+set -eu
+ARM=${1:?usage: launch_b200_v10.sh teacher|static [n_cycles]}; CYCLES=${2:-50}
+case $ARM in teacher|static) ;; *) echo "arm must be teacher or static"; exit 2;; esac
+
+# ---- site (B200 pod) ---------------------------------------------------------------
+export MS_ROOT=${MS_ROOT:-/scratch/hongpaul-sandbox/mathscaffold}
+export MS_PYTHON=${MS_PYTHON:?export MS_PYTHON=/scratch/<you>/msenv/bin/python first}
+export MS_MODEL=${MS_MODEL:-$MS_ROOT/models/OpenMath-Nemotron-1.5B}
+export MS_CKPTS=${MS_CKPTS:-$MS_ROOT/ckpts}
+export MS_DATA=${MS_DATA:-$MS_ROOT/data/questa_12k/OpenR1-25-0-4.jsonl,$MS_ROOT/data/questa_12k/OpenR1-50-0-4.jsonl}
+export MS_N_GPUS=${MS_N_GPUS:-8}
+export MS_WANDB=1 MS_WANDB_ENTITY=${MS_WANDB_ENTITY:-mhong-university-of-minnesota} MS_WANDB_PROJECT=${MS_WANDB_PROJECT:-mathscaffold}
+export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
+: "${WANDB_API_KEY:?export WANDB_API_KEY first}"
+[ "$ARM" = teacher ] && : "${OPENAI_API_KEY:?teacher arm needs OPENAI_API_KEY}"
+
+# ---- experiment (v4) ---------------------------------------------------------------
+export MS_EXP=questa_${ARM}_v10 MS_WORK=$MS_ROOT/runs/${ARM}_v10 MS_WANDB_RUN_ID=questa_${ARM}_v10
+export MS_LR=1e-6            # matched to v9's per-parameter step, NOT to its nominal lr
+export MS_BETA2=0.95 MS_WD=0.05 MS_EPS=1e-8   # true Adam: the denominator normalises again
+export MS_ADV_STD=False      # drop GRPO's /std (keep per-group centering)
+export MS_N=8                # group size 8 (QuestA uses 16); halves tokens/step
+export MS_FILTER_GROUPS=seq_final_reward MS_MAX_GEN_BATCHES=10
+export MS_SERVE_MULT=2.5     # filtering eats ~1/accept_rate prompts per step; unconsumed rows
+                             # return to the serving queue, so over-serving is free
+# LENGTH PENALTY OFF. Empty MS_OVERLONG_LEN means train_stage.sh passes verl no overlong
+# argument at all (its whole block is guarded by [ -n "$MS_OVERLONG_LEN" ]), so reward ==
+# score with no length term. Faithful QuestA has no length penalty; here the eps-damped
+# optimizer is the stabiliser under test, and a length term would confound it. To re-enable,
+# set MS_OVERLONG_LEN=4096 (and optionally MS_OVERLONG_PENALTY, default 1.0) — deliberately
+# NOT pre-set here, so nothing can silently switch it on.
+export MS_OVERLONG_LEN=
+export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
+export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
+export MS_BS=128               # MS_N is set above (8); do not re-assign it here
+export MS_NO_DEDUP=1
+# v9 dosing (same as v6/v7): EVERY row starts BARE (r=0); no mechanical dose moves at all (the old
+# bare-all-fail auto-jump is deleted) — the teacher raises doses only where the model
+# fails, in steps of at most MS_MAX_DELTA=20, cap 50, under a hard budget: at most
+# 10% of the pool may sit above r=25 (promotions past 25 beyond that are clamped).
+export MS_R0=0 MS_R_MAX=50 MS_MAX_DELTA=20 MS_PROMPT_STYLE=paper
+export MS_HIGH_DOSE_R=25 MS_HIGH_DOSE_FRAC=0.10
+export MS_BARE_SETS=$MS_ROOT/mathscaffold/bare_probe_sets_nodedup.json
+export MS_SWITCH_CYCLE=${MS_SWITCH_CYCLE:-25}   # static arm: 50% -> 25% at cycle 25 (250 steps)
+export MS_STALL_MIN=60       # stage watchdog: a 24K step incl. ckpt save is 15-30 min
+export MS_PROBE_EVERY=5 MS_BARE_PROBE=1 MS_BARE_EVERY=1
+
+# ---- preflight ---------------------------------------------------------------------
+cd $MS_ROOT
+for p in $MS_PYTHON $MS_MODEL/config.json ${MS_DATA%%,*} ${MS_DATA##*,} scripts/run_arm.sh; do
+  [ -e "$p" ] || { echo "[preflight] missing: $p"; exit 3; }
+done
+if [ -e $MS_CKPTS/$MS_EXP ] || [ -e $MS_WORK ]; then
+  echo "[preflight] $MS_CKPTS/$MS_EXP or $MS_WORK already exists: this launcher is FROM SCRATCH only."
+  echo "            move them aside (or resume with MS_START_CYCLE per LAUNCH_B200.md 3d) and rerun."; exit 3
+fi
+busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1>3000' | wc -l)
+[ "$busy" = 0 ] || { echo "[preflight] $busy GPU(s) still hold memory:"; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv; exit 3; }
+$MS_PYTHON -c "import verl, vllm; print('[preflight] verl', verl.__version__, 'vllm', vllm.__version__)"
+echo "[preflight] arm=$ARM exp=$MS_EXP work=$MS_WORK lr=$MS_LR beta2=${MS_BETA2:-0.999} wd=${MS_WD:-0.01} eps=${MS_EPS:-1e-8} advstd=${MS_ADV_STD:-True} maxresp=$MS_MAXRESP overlong=${MS_OVERLONG_LEN:-off} n=${MS_N:-16} filter=${MS_FILTER_GROUPS:-off} mini=$MS_MINI_BS R0=$MS_R0 cap=$MS_R_MAX dmax=$MS_MAX_DELTA high=${MS_HIGH_DOSE_R}@${MS_HIGH_DOSE_FRAC} nodedup=$MS_NO_DEDUP cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
+
+# ---- launch ------------------------------------------------------------------------
+bash scripts/launch.sh $ARM $CYCLES
+echo "[v4] verify in ~3 min:  grep -E 'Training from scratch|actor/lr' $MS_WORK/logs/latest/train_c0.log | head -3"
+echo "[v4] wandb runs: $MS_EXP (trainer), ${MS_EXP}_arm (cycle metrics), ${MS_EXP}_watch (liveness)"
