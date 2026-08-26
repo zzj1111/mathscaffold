@@ -95,10 +95,13 @@ def normalize(decision, state):
                 if w.get("succ_max") is not None and (sf is None or sf > float(w["succ_max"])):
                     continue
                 try:
-                    new_r = (float(rset) if rset is not None
-                             else cur + max(-MAX_DELTA, min(MAX_DELTA, float(delta))))
+                    step = (float(rset) - cur) if rset is not None else float(delta)
                 except (TypeError, ValueError):
                     break
+                # one decision may move a dose by at most MAX_DELTA — "set" is a target,
+                # not an exemption (an unclamped set could jump 0 -> cap in one cycle and
+                # sidestep both the step limit and the gradual-escalation design)
+                new_r = cur + max(-MAX_DELTA, min(MAX_DELTA, step))
                 sets[qid] = max(0.0, min(R_MAX, new_r))
         elif op.get("scope") == "qid" and qids < MAX_QID_OPS:
             qids += 1
@@ -106,7 +109,9 @@ def normalize(decision, state):
             h = probs.get(qid)
             if h and h.get("state") != "graduated" and op.get("set") is not None:
                 try:
-                    sets[qid] = max(0.0, min(R_MAX, float(op["set"])))
+                    cur = float(sets.get(qid, h.get("r") or 0))
+                    step = max(-MAX_DELTA, min(MAX_DELTA, float(op["set"]) - cur))
+                    sets[qid] = max(0.0, min(R_MAX, cur + step))
                 except (TypeError, ValueError):
                     pass
     budget_note = ""
