@@ -66,7 +66,33 @@ if [ -n "${MS_OVERLONG_LEN:-}" ]; then
   echo "[stage] overlong penalty on: linear from $(( ${MS_MAXRESP:-32768} - MS_OVERLONG_LEN )) to ${MS_MAXRESP:-32768} tokens, -${MS_OVERLONG_PENALTY:-1.0} at the cap"
 fi
 
-$PY -m verl.trainer.main_ppo "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" "${OVERLONG_ARGS[@]}" \
+# DAPO-style dynamic filtering (QuestA/AReaL do this): a prompt group whose rollouts are
+# all-correct or all-wrong carries no within-group contrast, so it is dropped and the
+# trainer keeps pulling prompts until it has train_batch_size groups with mixed rewards.
+# Only recipe/dapo's trainer implements it (main_ppo does not), and that trainer always
+# uses the agent-loop rollout manager — which is the mode we already run in. Its config
+# inherits ppo_trainer, so every override below is unchanged.
+# MS_FILTER_GROUPS=<metric> turns it on (metric: seq_final_reward | seq_reward | acc).
+# NOTE: with filtering a cycle eats ~steps*batch/accept_rate prompts, so serve a bigger
+# slice (MS_SERVE_MULT in prepare_cycle.py); unconsumed rows return to the serving queue.
+ENTRY=verl.trainer.main_ppo
+FILTER_ARGS=()
+if [ -n "${MS_FILTER_GROUPS:-}" ]; then
+  ENTRY=recipe.dapo.main_dapo
+  FILTER_ARGS=(algorithm.filter_groups.enable=True
+    algorithm.filter_groups.metric=$MS_FILTER_GROUPS
+    algorithm.filter_groups.max_num_gen_batches=${MS_MAX_GEN_BATCHES:-10}
+    data.gen_batch_size=${MS_GEN_BS:-${MS_BS:-128}})
+  VERL_PKG=$($PY -c "import verl,os;print(os.path.dirname(verl.__file__))")
+  # recipe/ lives next to the verl package; and dapo_trainer.yaml inherits ppo_trainer via a
+  # RELATIVE hydra searchpath ("file://verl/trainer/config"), which only resolves when the cwd
+  # is the verl checkout — we launch from MS_ROOT, so point it at the absolute path instead.
+  export PYTHONPATH=${MS_VERL_ROOT:-$(dirname $VERL_PKG)}:${PYTHONPATH:-}
+  FILTER_ARGS+=("hydra.searchpath=[file://$VERL_PKG/trainer/config]")
+  echo "[stage] dynamic filtering ON (metric=$MS_FILTER_GROUPS, max_gen_batches=${MS_MAX_GEN_BATCHES:-10}) via $ENTRY"
+fi
+
+$PY -m $ENTRY "${TMPL_ARGS[@]}" "${LOAD_ARGS[@]}" "${OVERLONG_ARGS[@]}" "${FILTER_ARGS[@]}" \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     ${MS_ADV_STD:+algorithm.norm_adv_by_std_in_grpo=$MS_ADV_STD} \

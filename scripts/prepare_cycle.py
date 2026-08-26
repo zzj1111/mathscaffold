@@ -25,8 +25,12 @@ ap.add_argument("--switch-cycle", type=int, default=int(os.environ.get("MS_SWITC
 # served slice MUST equal steps_per_cycle x train_batch (default 8 x 128): the
 # trainer consumes exactly that many prompts per cycle, and every served problem
 # must produce outcomes for the controller
+# with dynamic filtering the trainer's prompt appetite per step is 1/accept_rate times
+# the batch size, so the slice must be bigger than steps*batch; unconsumed rows go back
+# to the serving queue, so over-serving costs nothing but parquet size.
 ap.add_argument("--served", type=int,
-                default=int(os.environ.get("MS_K", "10")) * int(os.environ.get("MS_BS", "128")))
+                default=int(int(os.environ.get("MS_K", "10")) * int(os.environ.get("MS_BS", "128"))
+                            * float(os.environ.get("MS_SERVE_MULT", "1.0"))))
 ap.add_argument("--out", required=True)
 a = ap.parse_args()
 
@@ -197,6 +201,10 @@ served = set(queue[: a.served])
 state["serve_queue"] = queue
 print(f"[prepare] serving {len(served)} of {len(pool_qids)} pool rows; "
       f"queue {len(queue)} left, {len(outcomes)} retired by last cycle's rollouts")
+if outcomes and len(outcomes) > a.served:
+    print(f"[prepare] WARNING: last cycle consumed {len(outcomes)} prompts but only {a.served} were "
+          f"served -> the trainer wrapped the parquet and some problems were trained twice. "
+          f"Raise MS_SERVE_MULT (now {os.environ.get('MS_SERVE_MULT', '1.0')}).")
 rows = D.build_rows(problems, state, served, cycle=a.cycle)
 D.write_parquet(rows, a.out)
 C.save_state(state, a.state)
