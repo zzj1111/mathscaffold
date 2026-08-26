@@ -64,7 +64,7 @@ export MS_SERVE_MULT=2.5     # filtering eats ~1/accept_rate prompts per step; u
 export MS_OVERLONG_LEN=      # no length penalty (faithful: they have none)
 export MS_MAXRESP=24000      # QuestA training cap (bare probe follows it; official probe stays 32K)
 export MS_MINI_BS=128        # one optimizer update per step (= AReaL ppo_n_minibatches 1)
-export MS_BS=128 MS_N=16
+export MS_BS=128               # MS_N is set above (8); do not re-assign it here
 export MS_NO_DEDUP=1
 # v9 dosing (same as v6/v7): EVERY row starts BARE (r=0); no mechanical dose moves at all (the old
 # bare-all-fail auto-jump is deleted) — the teacher raises doses only where the model
