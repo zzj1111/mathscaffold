@@ -43,6 +43,24 @@ fi
 # Auto-detected per stage, so every later stage (whose ckpts have optimizer shards) resumes fully.
 LOAD_ARGS=()
 LATEST=$(cat $CKPTS/latest_checkpointed_iteration.txt 2>/dev/null || echo 0)
+
+# verl restores the StatefulDataLoader position from the checkpoint's data.pt. Every cycle
+# trains on a DIFFERENT parquet, so that position is meaningless here: measured live, a new
+# cycle resumes at row <previous consumption> and silently SKIPS that many rows of its own
+# slice — i.e. most of the problems the teacher just dosed never get trained. It only looked
+# harmless while consumption exactly equalled the slice size (10 steps x 128 = 1280 rows);
+# MS_SERVE_MULT and dynamic filtering both break that equality.
+# Rule: drop data.pt iff the parquet changed since the last invocation. A retry of the SAME
+# cycle keeps it (correctly resuming mid-slice); the first attempt of a new cycle drops the
+# stale one, so retries can never see a stale state afterwards.
+LAST_RUN=$CKPTS/last_train_parquet.txt
+if [ "$LATEST" -gt 0 ] && [ "$(cat $LAST_RUN 2>/dev/null)" != "$PARQUET" ]; then
+  if [ -f $CKPTS/global_step_$LATEST/data.pt ]; then
+    mv $CKPTS/global_step_$LATEST/data.pt $CKPTS/global_step_$LATEST/data.pt.prev_parquet
+    echo "[stage] new parquet -> dropped the checkpoint's dataloader state (it points into the previous slice)"
+  fi
+fi
+mkdir -p $CKPTS && echo "$PARQUET" > $LAST_RUN
 if [ "$LATEST" -gt 0 ] && ! ls $CKPTS/global_step_$LATEST/actor/optim_world_size_* >/dev/null 2>&1; then
   LOAD_ARGS=("actor_rollout_ref.actor.checkpoint.load_contents=['model']")
   echo "[stage] ckpt global_step_$LATEST has no optimizer shards: loading model only -> fresh optimizer at lr ${MS_LR:-2e-5}"
