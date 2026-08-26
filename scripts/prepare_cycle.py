@@ -73,7 +73,11 @@ if a.rollout_log and os.path.exists(a.rollout_log):
                 "text": comp[True], "bare": comp[False]}
 
 if a.arm == "adaptive":
-    state, notes = C.adaptive_update(state, outcomes, a.cycle)
+    # hist entries are labelled with the window they describe (the rollouts of a.cycle-1),
+    # not with the cycle doing the bookkeeping — get_stats' revisits filter keeps entries
+    # with cycle < window_cycle, so an entry mislabelled a.cycle is dropped and the
+    # revisit goes unreported.
+    state, notes = C.adaptive_update(state, outcomes, a.cycle - 1)
 elif a.arm == "teacher":
     # mechanical bookkeeping first (graduation / relapse / bare-probe outcomes are
     # not the Teacher's to decide), then the investigative Teacher steers ratios;
@@ -83,7 +87,7 @@ elif a.arm == "teacher":
     probs = state["problems"]
     book = {q: (s_, n_) for q, (s_, n_) in outcomes.items()
             if probs.get(q, {}).get("r", 1) <= 0 or probs.get(q, {}).get("state") == "graduated"}
-    state, notes = C.adaptive_update(state, book, a.cycle)
+    state, notes = C.adaptive_update(state, book, a.cycle - 1)
     # visit history for EVERY served problem (adaptive_update only books bare/graduated
     # ones): {cycle, r in effect, succ, n}. Problems rotate (a slice of the pool per
     # cycle, each problem back every ~pool/served cycles), so this is the only way the
@@ -145,7 +149,7 @@ elif a.arm == "teacher":
         # both contradict that and bypass the budget. MS_TEACHER_FALLBACK=adaptive
         # restores the old behaviour.
         if os.environ.get("MS_TEACHER_FALLBACK", "none") == "adaptive":
-            state, notes2 = C.adaptive_update(state, outcomes, a.cycle)
+            state, notes2 = C.adaptive_update(state, outcomes, a.cycle - 1)
             notes += [note] + notes2
         else:
             notes += [note, "teacher unavailable -> doses left UNCHANGED this cycle "

@@ -65,7 +65,7 @@ def main():
         probs = state["problems"]
         book = {q: (s_, n_) for q, (s_, n_) in outcomes.items()
                 if probs.get(q, {}).get("r", 1) <= 0 or probs.get(q, {}).get("state") == "graduated"}
-        state, notes = C.adaptive_update(state, book, c)
+        state, notes = C.adaptive_update(state, book, c - 1)
         probs = state["problems"]
         for q, (s_, n_) in outcomes.items():
             h = probs.get(q)
@@ -80,7 +80,7 @@ def main():
             except (OSError, ValueError):
                 decision = None
         if decision is None:
-            state, notes2 = C.adaptive_update(state, outcomes, c)
+            state, notes2 = C.adaptive_update(state, outcomes, c - 1)
             print(f"[replay] cycle {c}: no decision -> mechanical fallback ({len(notes2)} notes)")
         else:
             for h in probs.values():
