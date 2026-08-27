@@ -8,7 +8,7 @@
 # 用法(在 B200 上):
 #   HF_TOKEN=hf_xxx bash upload_ckpts.sh                  # 权重(每 ckpt ~3GB)
 #   HF_TOKEN=hf_xxx WITH_OPTIM=1 bash upload_ckpts.sh     # 额外传 v7 崩溃点的优化器状态(每个 ~18GB)
-#   HF_TOKEN=hf_xxx ALL_STEPS=1 bash upload_ckpts.sh      # 不做步数抽样,全传
+#   HF_TOKEN=hf_xxx STEPS_questa_teacher_v7="50 100 110 120 130 134" bash upload_ckpts.sh   # 覆盖点名
 set -u
 REPO=${REPO:-Mingyi-Hong/mathscaffold-ckpts}
 : "${HF_TOKEN:?export HF_TOKEN=hf_... 先设 token}"
@@ -17,7 +17,8 @@ PY=${MS_PYTHON:-python}
 TMP=${TMP_MERGE:-$MS_CKPTS/_upload_tmp}
 LOG=${LOG:-$HOME/upload_ckpts_$(date +%m%d_%H%M).log}
 exec > >(tee -a "$LOG") 2>&1
-echo "[$(date +%H:%M)] repo=$REPO  ckpts=$MS_CKPTS  log=$LOG"
+UP=$(command -v hf >/dev/null 2>&1 && echo hf || echo huggingface-cli)
+echo "[$(date +%H:%M)] uploader=$UP repo=$REPO  ckpts=$MS_CKPTS  log=$LOG"
 
 # 已在 HF 上的路径,用于跳过
 HAVE=$($PY - <<'PY' 2>/dev/null
@@ -32,11 +33,37 @@ PY
 )
 echo "[已在 HF] $(echo "$HAVE" | grep -c . ) 个目录"
 
-pick_steps() {   # 抽样:全部 <=6 个就都要,否则最早 2 个 + 最后 4 个(覆盖整条弧线)
-  local all=($1)
-  if [ "${ALL_STEPS:-0}" = "1" ] || [ ${#all[@]} -le 6 ]; then echo "${all[@]}"; return; fi
-  echo "${all[0]} ${all[1]} ${all[@]: -4}"
-}
+# ---------------------------------------------------------------------------------
+# 明确点名,不做启发式抽样。每一步都是从各臂的指标曲线上挑的(wandb 全量 history):
+#
+# v5  lr 2e-5 + KL loss —— "长度先失控,梯度后爆炸"
+#   20 截断 9.6% 已在爬升、score 0.568 仍健康        (失控起点)
+#   40 截断 18.6%、len 15.5K,score 0.578 居然还好    (长度已失控但功能正常 <- 关键点)
+#   50 截断 14.6%、len 回落 12.8K、score 0.608        (最后一个可用点)
+#   60 grad_norm 6.70 = 397x、截断 35%、score 0.209   (爆炸当中)
+#   70 截断 97.1%、len 24K、熵 0.181、score 0.000     (已死)
+#
+# v6  lr 2e-5 + 长度惩罚 + hint=0 —— "长度被摁住,但慢性中毒"
+#   20 score 0.419 峰值、截断 0.1%                    (惩罚生效,长度全程不失控)
+#   40 score 0.333                                    (下滑中段)
+#   50 score 0.317、grad_norm 开始抖动                (下滑后段)
+#   60 score 0.249、grad_norm 2.5x                    (终点,始终没有爆炸)
+#
+# v7  lr 1e-5 + 长度惩罚 —— "长期健康后突然雪崩"(记录最完整的一次)
+#   50  官方探针最好点 65.1/53.2/33.4                 (健康基准)
+#  100  gn 1.6x、截断 1.9%、score 0.365               (最后一个完全健康点)
+#  110  gn 3.1x                                       (第一次异动)
+#  120  gn 19.6x、截断 7.0%、score 0.268              (转折)
+#  130  gn 456x、截断 97.4%、score -0.469             (雪崩后)
+STEPS_questa_teacher_v5="20 40 50 60 70"
+STEPS_questa_teacher_v6="20 40 50 60"
+STEPS_questa_teacher_v7="50 100 110 120 130"
+# 优化器状态(Adam m/v):只在"有效步长理论"真正需要判读的转折点上取。
+#   v5 50->60: grad_norm 平了 30 步然后 397 倍爆炸 —— 这期间 sqrt(v) 在漂吗?
+#   v7 100->110->120: 健康 -> 异动 -> 转折,最干净的一组跨越
+# (v3 的 50/60/70/80 分片含优化器状态,已经在本地,不必从 B200 传)
+OPTIM_questa_teacher_v5="50 60"
+OPTIM_questa_teacher_v7="100 110 120"
 
 for EXP in questa_teacher_v5 questa_teacher_v6 questa_teacher_v7; do
   D=$MS_CKPTS/$EXP
@@ -62,7 +89,7 @@ for EXP in questa_teacher_v5 questa_teacher_v6 questa_teacher_v7; do
       [ -f "$MS_MODEL/$f" ] && cp "$MS_MODEL/$f" "$OUT/" 2>/dev/null
     done
     echo "   step $S: 上传 $(du -sh "$OUT" | cut -f1)"
-    HF_TOKEN=$HF_TOKEN nice -n 15 hf upload "$REPO" "$OUT" "$EXP/step_$S" --repo-type model \
+    HF_TOKEN=$HF_TOKEN nice -n 15 $UP upload "$REPO" "$OUT" "$EXP/step_$S" --repo-type model \
       && rm -rf "$OUT" && echo "   step $S: 完成" \
       || echo "   !! step $S 上传失败,保留 $OUT 以便重试"
   done
@@ -70,14 +97,16 @@ done
 
 # 优化器状态(可选):只传 v7 跨越崩溃点的那几个,用于验证有效步长/√v̂ 理论
 if [ "${WITH_OPTIM:-0}" = "1" ]; then
-  D=$MS_CKPTS/questa_teacher_v7
-  for S in ${OPTIM_STEPS:-110 120 130}; do
-    CK=$D/global_step_$S
-    [ -d "$CK/actor" ] || { echo "== optim step $S: 不存在"; continue; }
-    echo "$HAVE" | grep -qx "questa_teacher_v7/step_${S}_fsdp" && { echo "== optim step $S: 已有"; continue; }
-    echo "== optim step $S: 上传原始 FSDP 分片(含 Adam m/v)$(du -sh "$CK/actor" | cut -f1)"
-    HF_TOKEN=$HF_TOKEN nice -n 15 hf upload "$REPO" "$CK/actor" "questa_teacher_v7/step_${S}_fsdp" --repo-type model \
-      || echo "   !! optim step $S 上传失败"
+  for EXP in questa_teacher_v5 questa_teacher_v7; do
+    eval "OS=\${OPTIM_$EXP:-}"
+    for S in $OS; do
+      CK=$MS_CKPTS/$EXP/global_step_$S
+      [ -d "$CK/actor" ] || { echo "== optim $EXP/$S: 不存在"; continue; }
+      echo "$HAVE" | grep -qx "$EXP/step_${S}_fsdp" && { echo "== optim $EXP/$S: 已有"; continue; }
+      echo "== optim $EXP/$S: 上传原始 FSDP 分片(含 Adam m/v)$(du -sh "$CK/actor" | cut -f1)"
+      HF_TOKEN=$HF_TOKEN nice -n 15 $UP upload "$REPO" "$CK/actor" "$EXP/step_${S}_fsdp" --repo-type model \
+        || echo "   !! optim $EXP/$S 上传失败"
+    done
   done
 fi
 rmdir "$TMP"/*/ "$TMP" 2>/dev/null
