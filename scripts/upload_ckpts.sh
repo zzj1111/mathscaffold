@@ -11,9 +11,17 @@
 #   HF_TOKEN=hf_xxx STEPS_questa_teacher_v7="50 100 110 120 130 134" bash upload_ckpts.sh   # 覆盖点名
 set -u
 REPO=${REPO:-Mingyi-Hong/mathscaffold-ckpts}
-: "${HF_TOKEN:?export HF_TOKEN=hf_... 先设 token}"
-: "${MS_CKPTS:?MS_CKPTS 未设 — 先 source 你的 launch 配置}"
-PY=${MS_PYTHON:-python}
+# token:优先环境变量,否则用 `hf auth login` 的缓存(不需要在命令行里贴密钥)
+if [ -z "${HF_TOKEN:-}" ] && [ -f "$HOME/.cache/huggingface/token" ]; then
+  HF_TOKEN=$(tr -d "[:space:]" < "$HOME/.cache/huggingface/token")
+fi
+[ -n "${HF_TOKEN:-}" ] || { echo "没有 token:先跑一次 \`hf auth login\`,或 export HF_TOKEN=hf_..."; exit 2; }
+# 路径:默认取 launch_b200_v9.sh 里的同一套,可用环境变量覆盖
+MS_ROOT=${MS_ROOT:-/scratch/hongpaul-sandbox/mathscaffold}
+MS_CKPTS=${MS_CKPTS:-$MS_ROOT/ckpts}
+MS_MODEL=${MS_MODEL:-$MS_ROOT/models/OpenMath-Nemotron-1.5B}
+[ -d "$MS_CKPTS" ] || { echo "MS_CKPTS 不存在: $MS_CKPTS — 用 MS_CKPTS=... 覆盖"; exit 2; }
+PY=${MS_PYTHON:-$(command -v python3 || command -v python)}
 TMP=${TMP_MERGE:-$MS_CKPTS/_upload_tmp}
 LOG=${LOG:-$HOME/upload_ckpts_$(date +%m%d_%H%M).log}
 exec > >(tee -a "$LOG") 2>&1
@@ -21,6 +29,7 @@ UP=$(command -v hf >/dev/null 2>&1 && echo hf || echo huggingface-cli)
 echo "[$(date +%H:%M)] uploader=$UP repo=$REPO  ckpts=$MS_CKPTS  log=$LOG"
 
 # 已在 HF 上的路径,用于跳过
+export REPO HF_TOKEN   # 下面的 python 通过环境变量读它们(漏了 export 会让"已传过就跳过"静默失效)
 HAVE=$($PY - <<'PY' 2>/dev/null
 import os
 from huggingface_hub import HfApi
