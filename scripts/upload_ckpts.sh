@@ -65,7 +65,11 @@ echo "[已在 HF] $(echo "$HAVE" | grep -c . ) 个目录"
 #  120  gn 19.6x、截断 7.0%、score 0.268              (转折)
 #  130  gn 456x、截断 97.4%、score -0.469             (雪崩后)
 STEPS_questa_teacher_v5="20 40 50 60 70"
-STEPS_questa_teacher_v6="20 40 50 60"
+# v6 是唯一能分离两种慢性退化来源的样本:R0=0(剂量暴露只有 v4 的 1/6)却退化得更厉害
+# (末次 AIME24 0.431 vs 基线 0.642),所以它的衰退不可能主要来自 hint 依赖。
+# 取 20(score 峰值 0.419)/40(0.333)/60(0.249)三点,足以量 Wait 密度与 hint 增益。
+STEPS_questa_teacher_v6="20 40 60"
+OPTIM_questa_teacher_v6="40 60"
 STEPS_questa_teacher_v7="50 100 110 120 130"
 # v8  lr 1e-5 + eps 1e-5 + /std 开 + 无过滤 —— "既不崩也不学"的唯一样本
 #   有效步长约 5e-7(比 v9 的 6.2e-7 还小),87 步 score 始终 0.20-0.27。
@@ -110,7 +114,7 @@ done
 
 # 优化器状态(可选):只传 v7 跨越崩溃点的那几个,用于验证有效步长/√v̂ 理论
 if [ "${WITH_OPTIM:-0}" = "1" ]; then
-  for EXP in questa_teacher_v5 questa_teacher_v7; do
+  for EXP in questa_teacher_v5 questa_teacher_v6 questa_teacher_v7; do
     eval "OS=\${OPTIM_$EXP:-}"
     for S in $OS; do
       CK=$MS_CKPTS/$EXP/global_step_$S
