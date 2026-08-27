@@ -6,6 +6,10 @@ import argparse, json
 
 from concurrent.futures import ThreadPoolExecutor
 
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+from mathscaffold import reward as R  # noqa: E402  (subprocess-guarded verifier)
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--base-url", required=True,
                 help="one URL, or comma-separated URLs (one vLLM per GPU) — problems are spread round-robin")
@@ -62,31 +66,27 @@ def one(idx_item, qk, ak):
         ERRORS.append(idx)
         return 0.0
     ok = 0
-    gold = parse("\\boxed{" + str(item[ak]) + "}", parsing_timeout=None)
+    gt = "\\boxed{" + str(item[ak]) + "}"
     for ch in r.choices:
-        txt = ch.message.content or ""
-        hit = False
+        # Verify through the TRAINING reward's subprocess pool (reward._verify): same
+        # scoring path as training — including the last-boxed second chance — AND the same
+        # wall-clock guard (MS_VERIFY_TIMEOUT, default 20s; an overrunning child is killed
+        # and that sample scores 0).
+        # In-process parse/verify has NO timeout, and sympy holds the GIL while it works,
+        # so a single pathological expansion freezes every thread in this ThreadPoolExecutor
+        # and the whole probe hangs. Seen live on B200: 5h50m wedged inside a factorial
+        # _recursive, aime24 already scored but discarded, aime25/hmmt25 never ran.
         try:
-            hit = bool(verify(gold, parse(txt[-3000:], parsing_timeout=None),
-                              timeout_seconds=None))
+            s, timed_out = R._verify(ch.message.content or "", gt)
         except Exception:
-            pass
-        # same second chance as the training reward (mathscaffold/reward.py): a response
-        # that boxes its answer and then keeps writing past the 3000-char tail would
-        # otherwise be scored wrong — a length-dependent false negative (0% below 20K
-        # chars, 0.63% above 40K on real rollouts). Keep probe and reward identical.
-        if not hit and len(txt) > 3000:
-            i = txt.rfind("\\boxed{")
-            if 0 <= i < len(txt) - 3000:
-                try:
-                    hit = bool(verify(gold, parse(txt[max(0, i - 200): i + 3000],
-                                                  parsing_timeout=None), timeout_seconds=None))
-                except Exception:
-                    pass
-        ok += 1 if hit else 0
+            s, timed_out = 0.0, False
+        if timed_out:
+            TIMEOUTS.append(idx)
+        ok += 1 if s > 0 else 0
     return ok / a.n
 
 ERRORS = []
+TIMEOUTS = []   # samples whose verification hit the wall clock; scored 0, probe continues
 PER_PROBLEM = {}
 STDERR = {}
 results = {}
@@ -102,7 +102,7 @@ for name_ in (a.sets.split(",") if a.sets else [a.set]):
     se = (sum(x * (1 - x) for x in scores) / a.n) ** 0.5 / len(scores)
     STDERR[name_] = round(se, 4)
     print(json.dumps({"set": name_, "n_problems": len(scores), "mean_pass1": results[name_],
-                      "stderr": STDERR[name_], "request_failures": len(ERRORS)}), flush=True)
+                      "stderr": STDERR[name_], "request_failures": len(ERRORS), "verify_timeouts": len(TIMEOUTS)}), flush=True)
 if a.out:
     payload = dict(results)
     payload["stderr"] = STDERR
