@@ -67,6 +67,10 @@ echo "[已在 HF] $(echo "$HAVE" | grep -c . ) 个目录"
 STEPS_questa_teacher_v5="20 40 50 60 70"
 STEPS_questa_teacher_v6="20 40 50 60"
 STEPS_questa_teacher_v7="50 100 110 120 130"
+# v8  lr 1e-5 + eps 1e-5 + /std 开 + 无过滤 —— "既不崩也不学"的唯一样本
+#   有效步长约 5e-7(比 v9 的 6.2e-7 还小),87 步 score 始终 0.20-0.27。
+#   取两个点是为了量参数实际位移:如果几乎没动,就直接坐实"步长太小 -> 什么都没发生"。
+STEPS_questa_teacher_v8="40 80"
 # 优化器状态(Adam m/v):只在"有效步长理论"真正需要判读的转折点上取。
 #   v5 50->60: grad_norm 平了 30 步然后 397 倍爆炸 —— 这期间 sqrt(v) 在漂吗?
 #   v7 100->110->120: 健康 -> 异动 -> 转折,最干净的一组跨越
@@ -74,7 +78,7 @@ STEPS_questa_teacher_v7="50 100 110 120 130"
 OPTIM_questa_teacher_v5="50 60"
 OPTIM_questa_teacher_v7="100 110 120"
 
-for EXP in questa_teacher_v5 questa_teacher_v6 questa_teacher_v7; do
+for EXP in questa_teacher_v5 questa_teacher_v6 questa_teacher_v7 questa_teacher_v8; do
   D=$MS_CKPTS/$EXP
   [ -d "$D" ] || { echo "== $EXP: 目录不存在,跳过"; continue; }
   ALL=$(ls "$D" | grep -oE 'global_step_[0-9]+' | sed 's/.*_//' | sort -n | uniq | tr '\n' ' ')
