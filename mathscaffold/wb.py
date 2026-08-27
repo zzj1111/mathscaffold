@@ -96,15 +96,6 @@ def publish(work, arm, cycle, state, outcomes, notes, transcript_path=None, inj_
                             payload[f"bare/{which}_{k}"] = float(bp[which][k])
                 payload["bare/gap_train_minus_heldout"] = float(bp.get("gap_train_minus_heldout", 0))
                 payload["bare/step"] = float(bp.get("step", 0))
-                # hinted half + the gain (hinted - bare). Measured offline across v3/v4/v5/v7,
-                # the gain rises well before any training-side metric moves — base +15.8,
-                # v7@step100 +26.7 (all training metrics still normal), v4@step200 +30.0 —
-                # and only collapses (+2.5) once the model can no longer terminate at all.
-                for k, v in bp.items():
-                    if "_r" in k and isinstance(v, dict) and "pass1" in v:
-                        payload[f"bare/{k}_pass1"] = float(v["pass1"])
-                    elif k.endswith(tuple(f"hint_gain_r{r}" for r in (10, 20, 25, 50))) or "hint_gain_r" in k:
-                        payload[f"bare/{k}"] = float(v)
             except (OSError, ValueError, TypeError):
                 pass
         # teacher decision as a table row

@@ -39,41 +39,23 @@ echo "[bare] cycle $CYCLE step $STEP: n=$N servers $URLS"
 
 SETS=${MS_BARE_SETS:-$ROOT/mathscaffold/bare_probe_sets.json}
 OUT=$LOGDIR/bare/c${CYCLE}
-# Two readings per set: r=0 (can it solve unaided) and r=MS_HINT_PROBE_R (can it finish a
-# started solution). Their DIFFERENCE — the hint gain — is the only signal we have found
-# that moves BEFORE the training-side metrics do: measured offline on v7, at step 100 the
-# grad norm / clip ratio / length / score were all still normal while the gain had already
-# risen from the base model's +15.8 to +26.7 and bare AIME had fallen below base. Set
-# MS_HINT_PROBE_R= (empty) to skip the hinted half.
-HR=${MS_HINT_PROBE_R-50}
 for which in heldout train; do
   $PY - "$SETS" "$which" > $OUT.$which.qids.json <<'EOF'
 import json, sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]]))
 EOF
-  for r in 0 ${HR:-}; do
-    tag=$which; [ "$r" = 0 ] || tag=${which}_r${r}
-    $PY $ROOT/scripts/eval_bare_trainset.py --model-dir $HF --base-url "$URLS" \
-        --jsonl "${MS_DATA:?}" --qids $OUT.$which.qids.json --n $N --ratio $r \
-        --max-tokens ${MS_MAXRESP:-32768} --out $OUT.$tag 2>&1 | tail -n 3
-  done
+  $PY $ROOT/scripts/eval_bare_trainset.py --model-dir $HF --base-url "$URLS" \
+      --jsonl "${MS_DATA:?}" --qids $OUT.$which.qids.json --n $N --ratio 0 \
+      --max-tokens ${MS_MAXRESP:-32768} --out $OUT.$which 2>&1 | tail -n 3
 done
 
 $PY - "$WORK" "$CYCLE" "$STEP" "$N" "$OUT" <<'EOF'
 import json, sys, time
 work, cycle, step, n, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
 rec = {"cycle": cycle, "step": step, "n": n, "time": time.strftime("%Y-%m-%d %H:%M")}
-import os
 for which in ("heldout", "train"):
     s = json.load(open(f"{out}.{which}.summary.json"))
     rec[which] = {"pass1": s["mean_pass1"], "stderr": s["stderr"], "solved_any": s["solved_any"],
                   "truncated": s["truncated_frac"], "mean_chars": s["mean_chars"], "n_problems": s["n_problems"]}
-    # hinted half, when it ran: same problems, same n, only the dose differs
-    for f in sorted(__import__("glob").glob(f"{out}.{which}_r*.summary.json")):
-        r = int(f.rsplit("_r", 1)[1].split(".")[0])
-        h = json.load(open(f))
-        rec[f"{which}_r{r}"] = {"pass1": h["mean_pass1"], "stderr": h["stderr"],
-                                "truncated": h["truncated_frac"]}
-        rec[f"{which}_hint_gain_r{r}"] = round(h["mean_pass1"] - s["mean_pass1"], 4)
 rec["gap_train_minus_heldout"] = round(rec["train"]["pass1"] - rec["heldout"]["pass1"], 4)
 with open(f"{work}/bare_probe.jsonl", "a") as f:
     f.write(json.dumps(rec) + "\n")
