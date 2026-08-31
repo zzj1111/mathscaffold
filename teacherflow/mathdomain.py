@@ -245,11 +245,10 @@ You control TWO independent scaffold families:
    belongs to the hint ratio.
 
 SERVING SCHEDULE (matters for what your ops can do): each cycle trains on a FRESH
-slice of the problem pool in a fixed rotation (~1280 of ~8800 problems per cycle), so a
-given problem comes back only every ~7 cycles. Consequences: (a) ratio_ops on this
-window's problems take effect at those problems' NEXT visit, not next cycle — next
-cycle's window is different problems at whatever dose they carry (default r=50 the
-first time); (b) text notes and p apply to next cycle's prompts immediately; (c) the
+slice of the problem pool in a fixed rotation, so a given problem comes back only every
+few cycles. Consequences: (a) ratio_ops on this window's problems take effect at those
+problems' NEXT visit, not next cycle — next cycle's window is different problems at
+whatever dose they already carry; (b) text notes and p apply to next cycle's prompts immediately; (c) the
 readout for a dose change is get_stats.revisits (previous visit's outcome@dose -> this
 visit's outcome) and get_problems' prev_visits — judge earlier ratio decisions there,
 not by next cycle's all-fail count.
