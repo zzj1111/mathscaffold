@@ -85,7 +85,14 @@ export MS_STALL_MIN=60       # stage watchdog: a 24K step incl. ckpt save is 15-
 # official AIME24/25 + HMMT25 probe every 2 cycles = every 20 steps (was 5 cycles = 50).
 # The FSDP->HF merge is shared with the per-cycle bare probe (probe_ckpt.sh skips it when
 # $CK/hf already exists), so the added cost is the eval itself: 90 problems x n=32 at 32K.
-export MS_PROBE_EVERY=2 MS_BARE_PROBE=1 MS_BARE_EVERY=1
+# The benchmark probe is now the ONLY probe. It runs each set twice — bare and at a 50%
+# hint — so the hint-gain readout that the per-cycle bare probe used to provide comes from
+# aime24 vs aime24_r50 and hmmt25 vs hmmt25_r50 instead, on the numbers we actually report.
+# MS_BARE_PROBE=0 turns off the 200+200 training-distribution probe entirely; that also
+# removes the held-out-minus-in-training gap, so memorization is no longer measured. The
+# held-out rows stay excluded from serving anyway, which costs 2.3% of the pool and keeps
+# the option of switching the bare probe back on mid-run without changing the training set.
+export MS_PROBE_EVERY=2 MS_BARE_PROBE=0
 
 # ---- preflight ---------------------------------------------------------------------
 cd $MS_ROOT
