@@ -94,7 +94,7 @@ export MS_STALL_MIN=60       # stage watchdog: a 24K step incl. ckpt save is 15-
 # the option of switching the bare probe back on mid-run without changing the training set.
 # Overridable at launch: MS_BARE_PROBE=1 MS_BARE_EVERY=4 keeps the memorization readout
 # (held-out minus in-training, which nothing else measures) at a quarter of its old cost.
-export MS_PROBE_EVERY=${MS_PROBE_EVERY:-2} MS_BARE_PROBE=${MS_BARE_PROBE:-0} MS_BARE_EVERY=${MS_BARE_EVERY:-1}
+export MS_PROBE_EVERY=${MS_PROBE_EVERY:-1} MS_BARE_PROBE=${MS_BARE_PROBE:-0} MS_BARE_EVERY=${MS_BARE_EVERY:-1}
 
 # ---- preflight ---------------------------------------------------------------------
 cd $MS_ROOT
