@@ -129,7 +129,8 @@ elif a.arm == "teacher":
                     if isinstance(v, (int, float)) and not isinstance(v, bool)
                     and k not in ("cycle", "n", "request_failures")}
             se = pr.get("stderr") or {}
-            probe_line = ("Latest hint-free probes: "
+            probe_line = ("Latest benchmark probes (a key ending in _r50 is that same set "
+                          "WITH a 50% solution-prefix hint; every other key is hint-free): "
                           + ", ".join(f"{k} pass@1 {v}" + (f" (±{se[k]})" if k in se else "")
                                       for k, v in sets.items())
                           + f" (measured at cycle {pr.get('cycle', '?')}). ")
