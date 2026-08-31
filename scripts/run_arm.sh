@@ -2,7 +2,9 @@
 # The arm loop: prepare data (controller update) -> train K steps -> repeat.
 # Usage: MS_ROOT=... run_arm.sh adaptive|static|teacher <n_cycles> [steps_per_cycle]
 set -eu
-ARM=$1; CYCLES=$2; K=${3:-10}
+# steps_per_cycle also settable as MS_K (the launchers forward $3 when given); the arg
+# still wins, so every existing invocation behaves exactly as before.
+ARM=$1; CYCLES=$2; K=${3:-${MS_K:-10}}
 # prepare_cycle sizes the cycle's slice as MS_K * MS_BS * MS_SERVE_MULT, so the steps-per-
 # cycle it sees must be the one actually used here (they agreed only by both defaulting to 10)
 export MS_K=$K

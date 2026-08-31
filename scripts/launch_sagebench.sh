@@ -14,7 +14,7 @@
 #   export MS_PYTHON=/path/to/env/bin/python WANDB_API_KEY=... OPENAI_API_KEY=...
 #   bash scripts/launch_sagebench.sh teacher            # 50 cycles x 10 = 500 steps
 set -eu
-ARM=${1:-teacher}; CYCLES=${2:-50}
+ARM=${1:-teacher}; CYCLES=${2:-50}; K=${3:-${MS_K:-10}}
 
 # ---- site --------------------------------------------------------------------------
 export MS_ROOT=${MS_ROOT:-$PWD}
@@ -62,9 +62,9 @@ ps = D.load_problems('$MS_DATA'); assert len(ps) > 1000, f'only {len(ps)} proble
 s = json.load(open('$MS_BARE_SETS')); ids = {p['qid'] for p in ps}
 missing = [q for q in s['heldout'] + s['train'] if q not in ids]
 print(f'[preflight] {len(ps)} problems; bare sets ok' if not missing else f'[preflight] WARN {len(missing)} probe qids not in pool')"
-echo "[preflight] arm=$ARM exp=$MS_EXP model=$MS_MODEL lr=$MS_LR bs=${MS_BS}xn${MS_N} mini=$MS_MINI_BS clip=$MS_CLIP_LOW/$MS_CLIP_HIGH maxresp=$MS_MAXRESP R0=$MS_R0 cycles=$CYCLES git=$(git log --oneline -1 | cut -c1-40)"
+echo "[preflight] arm=$ARM exp=$MS_EXP model=$MS_MODEL lr=$MS_LR bs=${MS_BS}xn${MS_N} mini=$MS_MINI_BS clip=$MS_CLIP_LOW/$MS_CLIP_HIGH maxresp=$MS_MAXRESP R0=$MS_R0 cycles=$CYCLES steps/cycle=$K total=$((CYCLES*K)) git=$(git log --oneline -1 | cut -c1-40)"
 
 # ---- launch ------------------------------------------------------------------------
-bash scripts/launch.sh $ARM $CYCLES
+bash scripts/launch.sh $ARM $CYCLES $K
 echo "[sagebench] verify in ~3 min:  grep -E 'Training from scratch|actor/lr' $MS_WORK/logs/latest/train_c0.log | head -3"
 echo "[sagebench] wandb: $MS_EXP (trainer), ${MS_EXP}_arm (cycle metrics + probes), ${MS_EXP}_watch (liveness)"
