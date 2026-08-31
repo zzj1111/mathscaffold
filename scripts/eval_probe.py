@@ -90,11 +90,21 @@ TIMEOUTS = []   # samples whose verification hit the wall clock; scored 0, probe
 PER_PROBLEM = {}
 STDERR = {}
 results = {}
+# Each set used to get its own pool of 4-per-server, so a 3-set probe paid three tails
+# of the longest generation — and each wave inside a set paid one as well. Submit every
+# problem of every set together and let vLLM's continuous batching schedule the lot.
+TASKS = []
 for name_ in (a.sets.split(",") if a.sets else [a.set]):
     name, split, qk, ak = SRC[name_]
     ds = load_dataset(name, split=split)
-    with ThreadPoolExecutor(max_workers=4 * len(clis)) as ex:
-        scores = list(ex.map(lambda it: one(it, qk, ak), enumerate(ds)))
+    TASKS += [(name_, i, item, qk, ak) for i, item in enumerate(ds)]
+_workers = int(_os.environ.get("MS_EVAL_WORKERS", "0")) or len(TASKS)
+with ThreadPoolExecutor(max_workers=max(1, min(_workers, len(TASKS) or 1))) as ex:
+    _all = list(ex.map(lambda t: one((t[1], t[2]), t[3], t[4]), TASKS))
+_by_set = {}
+for _t, _sc in zip(TASKS, _all):
+    _by_set.setdefault(_t[0], []).append(_sc)
+for name_, scores in _by_set.items():
     results[name_] = round(sum(scores) / len(scores), 4)
     PER_PROBLEM[name_] = [round(x, 4) for x in scores]
     # binomial standard error of the set mean under resampling with the same problems:

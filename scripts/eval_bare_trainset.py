@@ -75,6 +75,9 @@ def main():
     ap.add_argument("--sample", type=int, default=0, help="random subset of N problems (fixed --seed)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--qids", default=None, help="json list of qids to restrict to")
+    ap.add_argument("--groups", default=None,
+                    help="json {label: [qid,...]}: all groups are submitted into ONE thread "
+                         "pool and summarised separately into <out>.<label>.{jsonl,summary.json}")
     ap.add_argument("--save-text", action="store_true", help="keep full generations in the rows")
     ap.add_argument("--out", required=True, help="output prefix")
     a = ap.parse_args()
@@ -85,20 +88,32 @@ def main():
     if a.sample:
         import random
         problems = random.Random(a.seed).sample(problems, a.sample)
-    if a.qids:
-        keep = set(json.load(open(a.qids)))
-        problems = [p for p in problems if p["qid"] in keep]
-    rows_path = a.out + ".jsonl"
-    done = set()
-    if os.path.exists(rows_path):
-        for line in open(rows_path):
-            try:
-                done.add(json.loads(line)["qid"])
-            except (ValueError, KeyError):
-                continue
-    todo = [p for p in problems if p["qid"] not in done]
-    print(f"{len(problems)} problems, {len(done)} already done, {len(todo)} to run; n={a.n} "
-          f"temp={a.temperature} max_tokens={a.max_tokens}", flush=True)
+    # A run's wall clock is set by its LONGEST generation, so groups evaluated back to
+    # back each pay one such tail: the two 200-problem bare sets measured 20 min + 19 min
+    # for a combined token volume worth about one tail. --groups submits them together.
+    if a.groups:
+        groups = [(str(k), set(v)) for k, v in json.load(open(a.groups)).items()]
+    elif a.qids:
+        groups = [("", set(json.load(open(a.qids))))]
+    else:
+        groups = [("", None)]
+    meta, todo, n_sel = {}, [], 0
+    for label, keep in groups:
+        prefix = a.out + ("." + label if label else "")
+        rows_path = prefix + ".jsonl"
+        done = set()
+        if os.path.exists(rows_path):
+            for line in open(rows_path):
+                try:
+                    done.add(json.loads(line)["qid"])
+                except (ValueError, KeyError):
+                    continue
+        meta[label] = {"prefix": prefix, "rows_path": rows_path}
+        sel = [p for p in problems if keep is None or p["qid"] in keep]
+        n_sel += len(sel)
+        todo += [(label, p) for p in sel if p["qid"] not in done]
+    print(f"{n_sel} problems in {len(groups)} group(s), {n_sel - len(todo)} already done, "
+          f"{len(todo)} to run; n={a.n} temp={a.temperature} max_tokens={a.max_tokens}", flush=True)
 
     gpus = [g for g in a.gpus.split(",") if g]
     # SIGTERM must run the finally: block below, or the vLLM servers (own sessions)
@@ -125,7 +140,7 @@ def main():
         counter = {"done": 0}
 
         def one(ip):
-            i, p = ip
+            i, (label, p) = ip
             prompt = D.hint_prompt(p["problem"], p["solution"], a.ratio, style="paper")
             cli = clis[i % len(clis)]
             r = None
@@ -158,7 +173,7 @@ def main():
                 row["problem_full"] = p["problem"]
                 row["solution"] = p["solution"]
             with lock:
-                with open(rows_path, "a") as f:
+                with open(meta[label]["rows_path"], "a") as f:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
                 counter["done"] += 1
                 if counter["done"] % 50 == 0:
@@ -167,7 +182,13 @@ def main():
                           f"eta {el / counter['done'] * (len(todo) - counter['done']) / 60:.0f} min", flush=True)
             return row
 
-        with ThreadPoolExecutor(max_workers=8 * len(clis)) as ex:
+        # Everything in flight at once. At 8 requests per server the run proceeded in
+        # waves of 16, and with truncated_frac=14.5% there is a 1-0.855^16 = 92% chance
+        # that any given wave holds a generation running to the token cap — so nearly
+        # every wave cost a full-length generation (12.5 waves for 200 problems). vLLM
+        # batches a single large submission far better; the surplus just queues there.
+        workers = int(os.environ.get("MS_EVAL_WORKERS", "0")) or len(todo)
+        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(todo) or 1))) as ex:
             list(ex.map(one, enumerate(todo)))
     finally:
         for p in procs:
@@ -176,24 +197,30 @@ def main():
             except Exception:
                 pass
 
-    rows = [json.loads(l) for l in open(rows_path)]
-    hist = collections.Counter(r["pass"] for r in rows)
-    n = rows[0]["n"] if rows else a.n
-    summary = {
-        "ratio": a.ratio, "model_dir": a.model_dir, "jsonl": a.jsonl, "n": n, "n_problems": len(rows),
-        "mean_pass1": round(sum(r["pass"] for r in rows) / (n * len(rows)), 4),
-        "solved_any": round(sum(r["pass"] > 0 for r in rows) / len(rows), 4),
-        "solved_all": round(sum(r["pass"] == n for r in rows) / len(rows), 4),
-        "pass_hist": {str(k): hist[k] for k in range(n + 1)},
-        # SE of the set mean treating per-problem pass rates as iid draws (between- plus
-        # within-problem spread; conservative for a fixed set, and well-defined at n=1)
-        "stderr": round((statistics.pvariance([r["pass"] / n for r in rows]) / len(rows)) ** 0.5, 4) if len(rows) > 1 else 0.0,
-        "truncated_frac": round(sum(f == "length" for r in rows for f in r["finish"]) / (n * len(rows)), 4),
-        "mean_chars": round(sum(sum(r["char_len"]) for r in rows) / (n * len(rows))),
-    }
-    with open(a.out + ".summary.json", "w") as f:
-        json.dump(summary, f, indent=1)
-    print(json.dumps(summary), flush=True)
+    for label, _ in groups:
+        rows_path = meta[label]["rows_path"]
+        rows = [json.loads(l) for l in open(rows_path)] if os.path.exists(rows_path) else []
+        if not rows:
+            print(f"[warn] no rows for group {label or '<all>'}", flush=True)
+            continue
+        hist = collections.Counter(r["pass"] for r in rows)
+        n = rows[0]["n"]
+        summary = {
+            "group": label or None,
+            "ratio": a.ratio, "model_dir": a.model_dir, "jsonl": a.jsonl, "n": n, "n_problems": len(rows),
+            "mean_pass1": round(sum(r["pass"] for r in rows) / (n * len(rows)), 4),
+            "solved_any": round(sum(r["pass"] > 0 for r in rows) / len(rows), 4),
+            "solved_all": round(sum(r["pass"] == n for r in rows) / len(rows), 4),
+            "pass_hist": {str(k): hist[k] for k in range(n + 1)},
+            # SE of the set mean treating per-problem pass rates as iid draws (between- plus
+            # within-problem spread; conservative for a fixed set, and well-defined at n=1)
+            "stderr": round((statistics.pvariance([r["pass"] / n for r in rows]) / len(rows)) ** 0.5, 4) if len(rows) > 1 else 0.0,
+            "truncated_frac": round(sum(f == "length" for r in rows for f in r["finish"]) / (n * len(rows)), 4),
+            "mean_chars": round(sum(sum(r["char_len"]) for r in rows) / (n * len(rows))),
+        }
+        with open(meta[label]["prefix"] + ".summary.json", "w") as f:
+            json.dump(summary, f, indent=1)
+        print(json.dumps(summary), flush=True)
 
 
 if __name__ == "__main__":

@@ -39,14 +39,18 @@ echo "[bare] cycle $CYCLE step $STEP: n=$N servers $URLS"
 
 SETS=${MS_BARE_SETS:-$ROOT/mathscaffold/bare_probe_sets.json}
 OUT=$LOGDIR/bare/c${CYCLE}
-for which in heldout train; do
-  $PY - "$SETS" "$which" > $OUT.$which.qids.json <<'EOF'
-import json, sys; print(json.dumps(json.load(open(sys.argv[1]))[sys.argv[2]]))
+# Both sets go in ONE submission. Run back to back they each pay a tail of the run's
+# longest generation (measured 20 min + 19 min) for a combined token volume worth about
+# one tail. --groups keeps the per-set outputs at $OUT.{heldout,train}.{jsonl,summary.json}
+# exactly where the summary block below expects them.
+$PY - "$SETS" > $OUT.groups.json <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(json.dumps({k: d[k] for k in ("heldout", "train")}))
 EOF
-  $PY $ROOT/scripts/eval_bare_trainset.py --model-dir $HF --base-url "$URLS" \
-      --jsonl "${MS_DATA:?}" --qids $OUT.$which.qids.json --n $N --ratio 0 \
-      --max-tokens ${MS_MAXRESP:-32768} --out $OUT.$which 2>&1 | tail -n 3
-done
+$PY $ROOT/scripts/eval_bare_trainset.py --model-dir $HF --base-url "$URLS" \
+    --jsonl "${MS_DATA:?}" --groups $OUT.groups.json --n $N --ratio 0 \
+    --max-tokens ${MS_MAXRESP:-32768} --out $OUT 2>&1 | tail -n 4
 
 $PY - "$WORK" "$CYCLE" "$STEP" "$N" "$OUT" <<'EOF'
 import json, sys, time
