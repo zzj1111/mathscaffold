@@ -100,8 +100,17 @@ for p in $MS_PYTHON $MS_MODEL/config.json ${MS_DATA%%,*} ${MS_DATA##*,} scripts/
   [ -e "$p" ] || { echo "[preflight] missing: $p"; exit 3; }
 done
 if [ -e $MS_CKPTS/$MS_EXP ] || [ -e $MS_WORK ]; then
-  echo "[preflight] $MS_CKPTS/$MS_EXP or $MS_WORK already exists: this launcher is FROM SCRATCH only."
-  echo "            move them aside (or resume with MS_START_CYCLE per LAUNCH_B200.md 3d) and rerun."; exit 3
+  # Resuming through this launcher rather than through launch.sh is deliberate: launch.sh
+  # sets none of the arm's config (lr, eps, betas, /std, group size, filtering, response
+  # cap, minibatch, dosing, high-dose budget), so a resume that bypasses this file silently
+  # falls back to defaults and is a different experiment. MS_START_CYCLE=<C> keeps the whole
+  # config and picks up from that cycle; the checkpoint and ratio state are already on disk.
+  if [ -z "${MS_START_CYCLE:-}" ]; then
+    echo "[preflight] $MS_CKPTS/$MS_EXP or $MS_WORK already exists: this launcher is FROM SCRATCH only."
+    echo "            To resume with this arm's full config: MS_START_CYCLE=<next cycle> bash $0 $ARM"
+    echo "            To start over: move both aside first."; exit 3
+  fi
+  echo "[preflight] resuming at cycle $MS_START_CYCLE (existing ckpt + ratio state kept)"
 fi
 busy=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1>3000' | wc -l)
 [ "$busy" = 0 ] || { echo "[preflight] $busy GPU(s) still hold memory:"; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv; exit 3; }
