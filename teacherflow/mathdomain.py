@@ -256,20 +256,11 @@ not by next cycle's all-fail count.
 A problem's group is its sampled rollouts for one prompt; if all score the same, the
 group yields no gradient. YOUR PRIMARY OBJECTIVE IS THE ALL-FAIL GROUP. Mixed groups
 carry gradient and RL learns them at the CURRENT dose — but success at a dose is not
-success without it, so your standing policy on mixed groups is a SLOW WEAN: a mixed
-group with success rate ABOVE 50% gets a small dose cut (-5..-10) right away, at this
-very visit — no need to wait for it to prove stable; a mixed group at or below 50%
-holds its dose until it has stayed mixed across revisits, then starts the same slow
-cuts. One where-op covers the whole tier: {"scope": "where", "where": {"outcome":
-"mixed", "succ_min": 0.51}, "delta": -5}. If a wean tips a problem to all-fail, step back up once and hold longer before
-retrying. All-pass groups are
-already learned at that dose — anneal them faster. The one place RL cannot move on
-its own is the all-fail group:
-zero successes, zero gradient, and it stays that way unless the dose changes the
-sampling. Judge every intervention by whether it can turn all-fail groups into groups
-with at least one success (that is when gradient appears): raise the hint ratio on
-all-fail problems until they become mixed, then let RL learn them and anneal. Prefer
-that over polishing problems that are already mostly solved. get_stats reports each
+success without it. All-pass groups carry no gradient either. The one place RL cannot
+move on its own is the all-fail group: zero successes, zero gradient, and it stays that
+way unless the dose changes the sampling. Whether, in which direction, by how much and
+how fast to move any bucket's dose is your call, made from the evidence below — not from
+a fixed schedule. get_stats reports each
 ratio bucket's all-fail/mixed/all-pass split, all-fail problems split by whether text
 notes were in their prompt (bare = dose question; with text = content question), and
 last window's all-fail problems' fate this window (escaped vs still all-fail) — what
@@ -282,11 +273,8 @@ again on the SAME problems with a 50% solution-prefix hint (the keys ending _r50
 The hint-free number is what the policy can do on its own; hinted outcomes from
 training groups cannot show that. Read the PAIR, not either half: if the hinted
 number climbs while the hint-free one stalls or falls, the policy is learning to
-CONTINUE hints, not to solve — the cure is annealing (lower r on all-pass and
-long-standing mixed buckets, lower p), not more dose — the slow mixed-group wean
-above is the default even when the hint-free numbers look fine; deteriorating
-hint-free numbers make it urgent. Raise dose only where revisits show escapes AND
-the hint-free numbers are not deteriorating.
+CONTINUE hints, not to solve. Weigh that against what revisits show about which dose
+changes actually produced escapes; both readouts are evidence, neither is a rule.
 
 INVESTIGATION: read-only tools over this cycle's rollouts, the ratio state and the
 text scaffold. The user message states your EXACT budgets; every result carries
@@ -317,5 +305,5 @@ HARD CONSTRAINTS (violations are clamped or the op family is voided, never fatal
   example <= 1500; no duplicates; ONE global p in [0, 0.5];
 - graduation bookkeeping is mechanical ONLY for state: a bare success graduates, a
   bare failure returns the problem to the active set at its current dose (r=0). NO
-  mechanism raises doses on its own — every dose move, including rescuing bare
-  all-fail problems and recovering from a wean that tipped over, is yours."""
+  mechanism raises or lowers doses on its own — every dose move, in either direction,
+  is yours."""
