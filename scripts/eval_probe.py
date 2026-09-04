@@ -26,6 +26,8 @@ ap.add_argument("--instruction", choices=["probe", "official"], default="probe",
 ap.add_argument("--max-tokens", type=int, default=30720)
 ap.add_argument("--temperature", type=float, default=0.7)
 ap.add_argument("--top-p", type=float, default=0.95)
+ap.add_argument("--dump", default=None, help="directory: write <set>[_rR].jsonl with every sample's "
+                "response, finish_reason, last boxed answer and verdict (failure analysis)")
 ap.add_argument("--ratios", default="0",
                 help="comma list of hint ratios, e.g. '0,50'. A ratio >0 prepends the first r%% of the\n                      set's reference solution as a '## Hint.' block, the same construction training\n                      uses. Sets with no reference solution silently run ratio 0 only.")
 a = ap.parse_args()
@@ -57,7 +59,7 @@ clis = [openai.OpenAI(base_url=u.strip(), api_key="EMPTY", timeout=7200)
         for u in a.base_url.split(",") if u.strip()]
 from math_verify import parse, verify
 
-def one(idx_item, qk, ak, sk=None, ratio=0):
+def one(idx_item, qk, ak, sk=None, ratio=0, dump_key=None):
     # one API call with n completions (vLLM samples them in a single batch) on the
     # client for this problem's slot — spreads load across the per-GPU servers
     idx, item = idx_item
@@ -89,6 +91,7 @@ def one(idx_item, qk, ak, sk=None, ratio=0):
         return 0.0
     ok = 0
     gt = "\\boxed{" + str(item[ak]) + "}"
+    recs = []
     for ch in r.choices:
         # Verify through the TRAINING reward's subprocess pool (reward._verify): same
         # scoring path as training — including the last-boxed second chance — AND the same
@@ -105,9 +108,21 @@ def one(idx_item, qk, ak, sk=None, ratio=0):
         if timed_out:
             TIMEOUTS.append(idx)
         ok += 1 if s > 0 else 0
+        if a.dump:
+            txt = ch.message.content or ""
+            boxed = re.findall(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", txt)
+            recs.append({"correct": bool(s > 0), "timed_out": bool(timed_out),
+                         "finish_reason": getattr(ch, "finish_reason", None),
+                         "chars": len(txt), "last_boxed": boxed[-1] if boxed else None,
+                         "n_boxed": len(boxed), "response": txt})
+    if a.dump:
+        DUMP.setdefault(dump_key or ("r%d" % ratio), []).append({"idx": idx, "gold": str(item[ak]), "ratio": ratio,
+                                               "problem": q if not (ratio and sk) else item[qk],
+                                               "samples": recs})
     return ok / a.n
 
 ERRORS = []
+DUMP = {}
 TIMEOUTS = []   # samples whose verification hit the wall clock; scored 0, probe continues
 PER_PROBLEM = {}
 STDERR = {}
@@ -142,7 +157,9 @@ for name_ in (a.sets.split(",") if a.sets else [a.set]):
         TASKS += [(key, i, item, qk, ak, sk, r) for i, item in enumerate(ds)]
 _workers = int(_os.environ.get("MS_EVAL_WORKERS", "0")) or len(TASKS)
 with ThreadPoolExecutor(max_workers=max(1, min(_workers, len(TASKS) or 1))) as ex:
-    _all = list(ex.map(lambda t: one((t[1], t[2]), t[3], t[4], t[5], t[6]), TASKS))
+    def _run(t):
+        return one((t[1], t[2]), t[3], t[4], t[5], t[6], dump_key=t[0])
+    _all = list(ex.map(_run, TASKS))
 _by_set = {}
 for _t, _sc in zip(TASKS, _all):
     _by_set.setdefault(_t[0], []).append(_sc)
@@ -155,6 +172,13 @@ for name_, scores in _by_set.items():
     STDERR[name_] = round(se, 4)
     print(json.dumps({"set": name_, "n_problems": len(scores), "mean_pass1": results[name_],
                       "stderr": STDERR[name_], "request_failures": len(ERRORS), "verify_timeouts": len(TIMEOUTS)}), flush=True)
+if a.dump:
+    _os.makedirs(a.dump, exist_ok=True)
+    for _k, _v in DUMP.items():
+        with open(_os.path.join(a.dump, f"{_k}.jsonl"), "w") as f:
+            for _rec in sorted(_v, key=lambda x: x["idx"]):
+                f.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+    print("dumped", {k: len(v) for k, v in DUMP.items()}, "->", a.dump)
 if a.out:
     payload = dict(results)
     payload["stderr"] = STDERR
