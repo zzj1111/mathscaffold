@@ -9,6 +9,7 @@
 #   HF_TOKEN=hf_xxx bash upload_ckpts.sh                  # 权重(每 ckpt ~3GB)
 #   HF_TOKEN=hf_xxx WITH_OPTIM=1 bash upload_ckpts.sh     # 额外传 v7 崩溃点的优化器状态(每个 ~18GB)
 #   HF_TOKEN=hf_xxx STEPS_questa_teacher_v7="50 100 110 120 130 134" bash upload_ckpts.sh   # 覆盖点名
+#   HF_TOKEN=hf_xxx ARMS=questa_teacher_v11 bash upload_ckpts.sh   # 只处理 v11(默认点名见下)
 set -u
 REPO=${REPO:-Mingyi-Hong/mathscaffold-ckpts}
 # token:优先环境变量,否则用 `hf auth login` 的缓存(不需要在命令行里贴密钥)
@@ -64,6 +65,15 @@ echo "[已在 HF] $(echo "$HAVE" | grep -c . ) 个目录"
 #  110  gn 3.1x                                       (第一次异动)
 #  120  gn 19.6x、截断 7.0%、score 0.268              (转折)
 #  130  gn 456x、截断 97.4%、score -0.469             (雪崩后)
+# v11  QuestA 初始剂量(50-0-4 源 r=50、25-0-4 源 r=25)、预算关。用户点名的五个点:
+STEPS_questa_teacher_v11="200 220 270 380 390"
+# 点名 -> 实际存在的交集;环境变量 STEPS_<exp> 覆盖上面的默认值
+pick_steps() {
+  local want out=""
+  eval "want=\${STEPS_$EXP:-}"
+  for s in $want; do for a in $1; do [ "$s" = "$a" ] && out="$out $s"; done; done
+  echo $out
+}
 STEPS_questa_teacher_v5="20 40 50 60 70"
 # v6 是唯一能分离两种慢性退化来源的样本:R0=0(剂量暴露只有 v4 的 1/6)却退化得更厉害
 # (末次 AIME24 0.431 vs 基线 0.642),所以它的衰退不可能主要来自 hint 依赖。
@@ -82,7 +92,7 @@ STEPS_questa_teacher_v8="40 80"
 OPTIM_questa_teacher_v5="50 60"
 OPTIM_questa_teacher_v7="100 110 120"
 
-for EXP in questa_teacher_v5 questa_teacher_v6 questa_teacher_v7 questa_teacher_v8; do
+for EXP in ${ARMS:-questa_teacher_v5 questa_teacher_v6 questa_teacher_v7 questa_teacher_v8 questa_teacher_v11}; do
   D=$MS_CKPTS/$EXP
   [ -d "$D" ] || { echo "== $EXP: 目录不存在,跳过"; continue; }
   ALL=$(ls "$D" | grep -oE 'global_step_[0-9]+' | sed 's/.*_//' | sort -n | uniq | tr '\n' ' ')
