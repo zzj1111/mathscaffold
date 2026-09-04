@@ -51,7 +51,9 @@ export WANDB_ENTITY=$MS_WANDB_ENTITY WANDB_PROJECT=$MS_WANDB_PROJECT
 [ "$ARM" = teacher ] && : "${OPENAI_API_KEY:?teacher arm needs OPENAI_API_KEY}"
 
 # ---- experiment (v11) ---------------------------------------------------------------
-export MS_EXP=questa_${ARM}_v11 MS_WORK=$MS_ROOT/runs/${ARM}_v11 MS_WANDB_RUN_ID=questa_${ARM}_v11
+# Overridable so a rollback/resume can run under a NEW name (fresh wandb runs: re-logging
+# steps under the old run id makes wandb drop them as duplicates).
+export MS_EXP=${MS_EXP:-questa_${ARM}_v11} MS_WORK=${MS_WORK:-$MS_ROOT/runs/${ARM}_v11} MS_WANDB_RUN_ID=${MS_WANDB_RUN_ID:-${MS_EXP}}
 export MS_LR=2e-5            # QuestA's lr — only safe together with eps below
 export MS_BETA2=0.95 MS_WD=0.05 MS_EPS=1e-5   # their AReaL optimizer, transplanted as a SET
 export MS_ADV_STD=False      # drop GRPO's /std (keep per-group centering)

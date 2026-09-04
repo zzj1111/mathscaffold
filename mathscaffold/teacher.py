@@ -220,12 +220,17 @@ def decide(rollout_log, state, outcomes, cycle, probe_line="", transcript_dir=No
             recent = []
     data.state = {"recent": recent}
     data.window_cycle = cycle - 1        # the rollouts being judged are cycle-1's
+    data.work_dir = os.path.dirname(os.path.abspath(rollout_log)) if rollout_log else None
     preamble = (f"Cycle {cycle} just finished training. {probe_line}"
                 "Investigate as you see fit, then decide.")
     try:
         rmax = str(int(R_MAX))
         dmax = str(int(MAX_DELTA))
-        system = (MD.MATH_SYSTEM.replace("0..90", "0.." + rmax)
+        _style = os.environ.get("MS_TEACHER_PROMPT_STYLE", "facts")
+        _base = getattr(MD, "PROMPT_STYLES", {"facts": MD.MATH_SYSTEM}).get(_style)
+        if _base is None:
+            raise ValueError(f"MS_TEACHER_PROMPT_STYLE={_style!r}; allowed: {sorted(MD.PROMPT_STYLES)}")
+        system = (_base.replace("0..90", "0.." + rmax)
                   .replace("[0, 90]", "[0, " + rmax + "]")
                   .replace("-20..20", "-" + dmax + ".." + dmax)
                   .replace("+-20", "+-" + dmax))
