@@ -156,8 +156,38 @@ def dispatch(data, name, args):
             d = revisits.setdefault(key, {"problems": 0, "all_fail": 0, "mixed": 0, "all_pass": 0})
             d["problems"] += 1
             d[nk] += 1
+        # response length and "no final answer" share: the failure profile measured at
+        # step 270 was 3/4 committed wrong answers after ~2x longer reasoning than correct
+        # ones and 1/4 responses cut at the token cap; these counters let that be read
+        # per bucket every cycle instead of from a one-off dump.
+        import re as _re
+        length = {}
+        for qid, g in groups.items():
+            r = float((probs.get(qid) or {}).get("r", g[0].get("ratio") or 0))
+            for side_key in (_bucket(r), "text" if g[0].get("text_inj") else "bare"):
+                d = length.setdefault(side_key, {"n": 0, "chars_sum": 0, "no_boxed": 0,
+                                                 "chars_sum_correct": 0, "n_correct": 0,
+                                                 "chars_sum_wrong": 0, "n_wrong": 0})
+                for x in g:
+                    t = str(x.get("text") or "")
+                    ok = float(x.get("score") or 0) > 0
+                    d["n"] += 1; d["chars_sum"] += len(t)
+                    d["no_boxed"] += 0 if _re.search(r"\\boxed\{", t) else 1
+                    if ok:
+                        d["n_correct"] += 1; d["chars_sum_correct"] += len(t)
+                    else:
+                        d["n_wrong"] += 1; d["chars_sum_wrong"] += len(t)
+        length_out = {k: {"rollouts": d["n"],
+                          "mean_chars": round(d["chars_sum"] / d["n"]) if d["n"] else None,
+                          "mean_chars_correct": round(d["chars_sum_correct"] / d["n_correct"]) if d["n_correct"] else None,
+                          "mean_chars_wrong": round(d["chars_sum_wrong"] / d["n_wrong"]) if d["n_wrong"] else None,
+                          "no_final_answer_share": round(d["no_boxed"] / d["n"], 3) if d["n"] else None}
+                      for k, d in length.items()}
         return {"window_problems": len(groups),
                 "by_ratio_bucket": by_bucket,
+                "response_length": {"note": "chars of the student's response; no_final_answer_share = "
+                                            "rollouts with no \\boxed{} (mostly cut at the token cap)",
+                                    **length_out},
                 "all_fail_fate": fate,
                 "revisits": {"note": "problems seen in an earlier cycle: previous visit's "
                                      "outcome@dose -> this visit's outcome split; the "
@@ -490,3 +520,33 @@ HARD CONSTRAINTS (violations are clamped or the op family is voided, never fatal
   example <= 1500; no duplicates; ONE global p in [0, 0.5]."""
 
 PROMPT_STYLES = {"facts": MATH_SYSTEM, "considerations": MATH_SYSTEM_CONSIDERATIONS}
+
+# v11 resume (2026-09-04): considerations + what was MEASURED on this run before the restart.
+# Dated facts about this student, not rules. Selected with MS_TEACHER_PROMPT_STYLE=v11r.
+MATH_V11R_FACTS = """
+MEASURED ON THIS STUDENT BEFORE THE RESTART (hint-free, step 270 checkpoint; AIME24/AIME25/HMMT25,
+30 problems each, 8 samples per problem):
+- Of the failed samples, about three quarters ended with a committed wrong answer and one quarter
+  were cut at the 32k-token cap before any answer. There were no verifier timeouts.
+- Correct samples were about 33-36k characters long; wrong-answer samples about 70-80k; truncated
+  ones about 85k. Wrong reasoning is roughly twice as long as right reasoning.
+- Problems never solved in 8 samples (5 of 30 on AIME24, 6 on AIME25, 8 on HMMT25) mostly scatter
+  across several different wrong answers; a 50% solution-prefix hint rescued 1 of 6 such AIME24
+  problems and 4 of 13 such HMMT25 problems. A minority converge on ONE wrong answer from a
+  misreading (an example count in the statement taken as the answer; a dropped symmetry factor).
+- Over training, mean response length rose from about 11k tokens (step 20) to 15k (step 200) and
+  16-17k (step 380-400); the share of training rollouts cut at the cap rose from 2% to 12% by
+  step 200 and 15-19% by step 380-400. Training score, the 200-problem hint-free probes (held-out
+  0.41, in-training 0.42, no gap between them) and the competition probes were flat from about
+  step 240 on. Held-out and in-training hint-free scores stayed equal throughout: hint-trained
+  problems were not memorised.
+What your levers can and cannot do here: a hint prefix fixes the opening of a solution and
+shortens what the student has to produce; a text note is the only lever that reaches how the
+student finishes, checks and commits to an answer; neither lever changes the token cap, the
+learning rate or the optimizer. get_stats.response_length reports lengths and the share of
+rollouts with no final answer per bucket every cycle.
+"""
+_INS = "INSTRUCTIONS FOR SCAFFOLD MANAGEMENT"
+assert _INS in MATH_SYSTEM_CONSIDERATIONS
+MATH_SYSTEM_V11R = MATH_SYSTEM_CONSIDERATIONS.replace(_INS, MATH_V11R_FACTS.strip("\n") + "\n\n" + _INS, 1)
+PROMPT_STYLES["v11r"] = MATH_SYSTEM_V11R
