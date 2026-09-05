@@ -343,6 +343,13 @@ You control TWO independent scaffold families:
    (a short worked example), "plan" (a solution skeleton). Math problems do not
    factor into mechanical categories, so notes are global; per-problem targeting
    belongs to the hint ratio.
+   Notes may also address HOW the student answers, not only what it knows: a rollout
+   that reaches the response token cap without a final \\boxed{} answer scores 0, and
+   the share of such rollouts has grown over training as responses got longer. A skill
+   note can ask the student to reason more concisely, avoid re-deriving what it has
+   already established, and commit to a final answer before the cap. get_stats.
+   response_length reports mean response length and the no-final-answer share per
+   ratio bucket every cycle, so the effect of such a note is measurable.
 
 SERVING SCHEDULE (matters for what your ops can do): each cycle trains on a FRESH
 slice of the problem pool in a fixed rotation, so a given problem comes back only every
